@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # Banco de Dados Principal
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: tcc-postgres
+    environment:
+      POSTGRES_DB: gateway_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d gateway_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Cache e Idempotência
+  redis-cache:
+    image: redis:7-alpine
+    container_name: tcc-redis
+    ports:
+      - "6379:6379"
+
+  # API Externa Mockada (Antifraude / Adquirente)
+  mock-api:
+    build: 
+      context: ./apps/mock-external-api
+    container_name: tcc-mock-api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - MIN_LATENCY_MS=200
+      - MAX_LATENCY_MS=500
