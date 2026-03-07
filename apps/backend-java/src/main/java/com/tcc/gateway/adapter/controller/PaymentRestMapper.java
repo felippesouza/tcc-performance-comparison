@@ -1,20 +1,21 @@
 package com.tcc.gateway.adapter.controller;
 
 import com.tcc.gateway.domain.Payment;
-import org.springframework.stereotype.Component;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 
 import java.math.BigDecimal;
 
-@Component
-public class PaymentRestMapper {
+@Mapper(componentModel = "spring")
+public interface PaymentRestMapper {
 
-    public Payment toDomain(PaymentRequest request) {
-        return new Payment(null, request.amount(), request.cardNumber(), null, null, null);
-    }
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "status", ignore = true)
+    @Mapping(target = "externalId", ignore = true)
+    @Mapping(target = "createdAt", ignore = true)
+    Payment toDomain(PaymentRequest request);
 
-    public PaymentResponse toResponse(Payment payment) {
-        return new PaymentResponse(payment.id(), payment.status(), payment.externalId());
-    }
+    PaymentResponse toResponse(Payment payment);
 
     record PaymentRequest(BigDecimal amount, String cardNumber) {}
     record PaymentResponse(String id, String status, String externalId) {}
