@@ -16,11 +16,11 @@ public class HttpExternalGateway implements ExternalGateway {
     }
 
     @Override
-    public PaymentResponse process(Payment payment) {
+    public ExternalGateway.PaymentResponse process(Payment payment) {
         // Chamada síncrona que será gerenciada pelas Virtual Threads
         return restClient.post()
             .body(payment)
             .retrieve()
-            .body(PaymentResponse.class);
+            .body(ExternalGateway.PaymentResponse.class);
     }
 }

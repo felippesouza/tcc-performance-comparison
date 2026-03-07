@@ -1,8 +1,6 @@
 package com.tcc.gateway.adapter.controller;
 
-import com.tcc.gateway.domain.Payment;
 import com.tcc.gateway.usecase.ProcessPaymentUseCase;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -10,24 +8,24 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.math.BigDecimal;
-
 @RestController
 @RequestMapping("/payments")
-@RequiredArgsConstructor
 public class PaymentController {
 
     private final ProcessPaymentUseCase processPaymentUseCase;
+    private final PaymentRestMapper mapper;
+
+    public PaymentController(ProcessPaymentUseCase processPaymentUseCase, PaymentRestMapper mapper) {
+        this.processPaymentUseCase = processPaymentUseCase;
+        this.mapper = mapper;
+    }
 
     @PostMapping
-    public ResponseEntity<PaymentResponse> create(@RequestBody PaymentRequest request) {
-        var payment = new Payment(null, request.amount(), request.cardNumber(), null, null, null);
+    public ResponseEntity<PaymentRestMapper.PaymentResponse> create(@RequestBody PaymentRestMapper.PaymentRequest request) {
+        var payment = mapper.toDomain(request);
         var processed = processPaymentUseCase.execute(payment);
         
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(new PaymentResponse(processed.id(), processed.status(), processed.externalId()));
+            .body(mapper.toResponse(processed));
     }
-
-    record PaymentRequest(BigDecimal amount, String cardNumber) {}
-    record PaymentResponse(String id, String status, String externalId) {}
 }

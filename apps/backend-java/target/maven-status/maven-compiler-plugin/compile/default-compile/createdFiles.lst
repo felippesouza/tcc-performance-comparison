@@ -1,0 +1,10 @@
+com\tcc\gateway\adapter\gateway\HttpExternalGateway.class
+com\tcc\gateway\domain\Payment.class
+com\tcc\gateway\usecase\ProcessPaymentUseCase.class
+com\tcc\gateway\adapter\controller\PaymentController.class
+com\tcc\gateway\adapter\controller\PaymentController$PaymentRequest.class
+com\tcc\gateway\domain\PaymentRepository.class
+com\tcc\gateway\adapter\controller\PaymentController$PaymentResponse.class
+com\tcc\gateway\domain\ExternalGateway$PaymentResponse.class
+com\tcc\gateway\GatewayApplication.class
+com\tcc\gateway\domain\ExternalGateway.class
