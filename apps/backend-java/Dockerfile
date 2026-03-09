@@ -1,0 +1,26 @@
+# Stage 1: Build
+FROM maven:3.9.9-eclipse-temurin-25-alpine AS builder
+
+WORKDIR /app
+COPY pom.xml ./
+# Baixa as dependências para aproveitar o cache
+RUN mvn dependency:go-offline
+
+COPY src ./src
+# Build do jar ignorando testes para ser mais rápido
+RUN mvn clean package -DskipTests
+
+# Stage 2: Runtime
+FROM eclipse-temurin:25-jre-alpine
+
+WORKDIR /app
+COPY --from=builder /app/target/backend-java-0.0.1-SNAPSHOT.jar app.jar
+
+# Variáveis de ambiente padrão
+ENV SPRING_PROFILES_ACTIVE=prod
+ENV SERVER_PORT=8081
+
+EXPOSE 8081
+
+# Executa o Java habilitando flags recomendadas para Virtual Threads (ZGC Generacional)
+ENTRYPOINT ["java", "-XX:+UseZGC", "-XX:+ZGenerational", "-jar", "app.jar"]

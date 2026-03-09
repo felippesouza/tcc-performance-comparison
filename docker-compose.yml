@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Banco de Dados Principal
   postgres-db:
@@ -17,7 +15,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Cache e Idempotência
+  # Cache
   redis-cache:
     image: redis:7-alpine
     container_name: tcc-redis
@@ -26,7 +24,7 @@ services:
 
   # API Externa Mockada (Antifraude / Adquirente)
   mock-api:
-    build: 
+    build:
       context: ./apps/mock-external-api
     container_name: tcc-mock-api
     ports:
@@ -35,3 +33,37 @@ services:
       - PORT=8080
       - MIN_LATENCY_MS=200
       - MAX_LATENCY_MS=500
+
+  # Concorrente 1: Backend Java 25 (Virtual Threads)
+  backend-java:
+    build:
+      context: ./apps/backend-java
+    container_name: tcc-backend-java
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/gateway_db
+      - EXTERNAL_API_BASE_URL=http://mock-api:8080
+      - SPRING_DATA_REDIS_HOST=redis-cache
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      mock-api:
+        condition: service_started
+
+  # Concorrente 2: Backend Go 1.25 (Goroutines)
+  backend-go:
+    build:
+      context: ./apps/backend-go
+    container_name: tcc-backend-go
+    ports:
+      - "8082:8082"
+    environment:
+      - DATABASE_URL=postgres://user:password@postgres-db:5432/gateway_db
+      - MOCK_API_URL=http://mock-api:8080/process-payment
+      - PORT=8082
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      mock-api:
+        condition: service_started
