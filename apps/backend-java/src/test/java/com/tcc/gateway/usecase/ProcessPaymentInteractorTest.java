@@ -77,4 +77,42 @@ class ProcessPaymentInteractorTest {
         assertEquals("REJECTED", result.status());
         assertEquals("ext_456", result.externalId());
     }
+
+    @Test
+    void shouldThrowExceptionWhenInitialSaveFails_AndNotCallGateway() {
+        // Arrange
+        var request = new Payment(null, new BigDecimal("100.00"), "1234-5678", null, null, null);
+        
+        when(repository.save(any())).thenThrow(new RuntimeException("Database error"));
+
+        // Act & Assert
+        RuntimeException exception = assertThrows(RuntimeException.class, () -> {
+            interactor.execute(request);
+        });
+
+        assertEquals("Database error", exception.getMessage());
+        
+        // Garante que se o banco falhou, NÃO cobramos o cartão do cliente na API externa
+        verify(externalGateway, never()).process(any());
+    }
+
+    @Test
+    void shouldPropagateExceptionWhenGatewayFails_AndKeepStatusPending() {
+        // Arrange
+        var request = new Payment(null, new BigDecimal("100.00"), "1234-5678", null, null, null);
+        
+        // Simula sucesso no primeiro save (PENDING) e falha no gateway
+        when(repository.save(any())).thenAnswer(i -> i.getArguments()[0]);
+        when(externalGateway.process(any())).thenThrow(new RuntimeException("Gateway Timeout"));
+
+        // Act & Assert
+        RuntimeException exception = assertThrows(RuntimeException.class, () -> {
+            interactor.execute(request);
+        });
+
+        assertEquals("Gateway Timeout", exception.getMessage());
+
+        // Garante que o repositório foi chamado apenas 1 vez (para o PENDING) e não atualizou para aprovado/rejeitado
+        verify(repository, times(1)).save(any());
+    }
 }
