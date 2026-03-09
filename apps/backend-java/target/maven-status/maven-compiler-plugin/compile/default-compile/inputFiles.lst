@@ -1,11 +1,16 @@
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\adapter\controller\PaymentController.java
+C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\adapter\controller\PaymentRestMapper.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\adapter\gateway\HttpExternalGateway.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\adapter\gateway\JpaPaymentRepository.java
+C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\adapter\gateway\PaymentEntityMapper.java
+C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\domain\DomainException.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\domain\ExternalGateway.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\domain\Payment.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\domain\PaymentRepository.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\GatewayApplication.java
+C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\infrastructure\config\GlobalExceptionHandler.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\infrastructure\config\RestClientConfig.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\infrastructure\entity\PaymentEntity.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\infrastructure\entity\SpringDataPaymentRepository.java
+C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\usecase\ProcessPaymentInteractor.java
 C:\Users\felip\projetos\tcc\apps\backend-java\src\main\java\com\tcc\gateway\usecase\ProcessPaymentUseCase.java

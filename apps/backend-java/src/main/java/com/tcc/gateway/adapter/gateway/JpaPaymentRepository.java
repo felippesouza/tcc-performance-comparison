@@ -1,5 +1,6 @@
 package com.tcc.gateway.adapter.gateway;
 
+import com.tcc.gateway.adapter.mapper.PaymentEntityMapper;
 import com.tcc.gateway.domain.Payment;
 import com.tcc.gateway.domain.PaymentRepository;
 import com.tcc.gateway.infrastructure.entity.SpringDataPaymentRepository;

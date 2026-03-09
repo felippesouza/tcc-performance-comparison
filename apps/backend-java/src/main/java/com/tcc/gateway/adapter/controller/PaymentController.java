@@ -1,5 +1,8 @@
 package com.tcc.gateway.adapter.controller;
 
+import com.tcc.gateway.adapter.controller.dto.PaymentRequest;
+import com.tcc.gateway.adapter.controller.dto.PaymentResponse;
+import com.tcc.gateway.adapter.mapper.PaymentRestMapper;
 import com.tcc.gateway.usecase.ProcessPaymentUseCase;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +24,7 @@ public class PaymentController {
     }
 
     @PostMapping
-    public ResponseEntity<PaymentRestMapper.PaymentResponse> create(@RequestBody PaymentRestMapper.PaymentRequest request) {
+    public ResponseEntity<PaymentResponse> create(@RequestBody PaymentRequest request) {
         var payment = mapper.toDomain(request);
         var processed = processPaymentUseCase.execute(payment);
         
