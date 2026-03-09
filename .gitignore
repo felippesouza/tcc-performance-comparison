@@ -1,0 +1,27 @@
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+.mvn/
+
+# Go
+bin/
+apps/mock-external-api/mock-api
+apps/backend-go/backend-go
+go.sum
+
+# IntelliJ / IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.vscode/
+
+# Docker / OS
+.DS_Store
+Thumbs.db
+*.log
+docker-compose.override.yml
