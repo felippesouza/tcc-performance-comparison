@@ -19,7 +19,6 @@ public class ProcessPaymentInteractor implements ProcessPaymentUseCase {
 
     @Override
     public Payment execute(Payment request) {
-        // 1. Persistir pagamento inicial (PENDENTE) - Conexão de BD abre e fecha aqui
         Payment payment = new Payment(
             UUID.randomUUID().toString(),
             request.amount(),
@@ -30,10 +29,8 @@ public class ProcessPaymentInteractor implements ProcessPaymentUseCase {
         );
         repository.save(payment);
 
-        // 2. Chamar Gateway Externo (Virtual Thread liberada, sem prender conexão de BD!)
         var response = externalGateway.process(payment);
 
-        // 3. Atualizar status baseado na resposta externa - Conexão de BD abre e fecha aqui
         String finalStatus = response.approved() ? "APPROVED" : "REJECTED";
         Payment updatedPayment = payment.withStatus(finalStatus, response.externalId());
         
