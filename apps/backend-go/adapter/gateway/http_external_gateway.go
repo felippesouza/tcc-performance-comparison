@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,15 +29,22 @@ func NewHttpExternalGateway(url string) *HttpExternalGateway {
 
 // Process realiza a requisição POST para a API externa (simulada).
 // Em Go, essa chamada é "bloqueante" apenas na Goroutine atual. A thread do SO é liberada.
-func (h *HttpExternalGateway) Process(payment domain.Payment) (domain.PaymentResponse, error) {
+func (h *HttpExternalGateway) Process(ctx context.Context, payment domain.Payment) (domain.PaymentResponse, error) {
 	// Serialização do payload
 	payload, err := json.Marshal(payment)
 	if err != nil {
 		return domain.PaymentResponse{}, err
 	}
 
+	// Cria a requisição associada ao contexto
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.url, bytes.NewBuffer(payload))
+	if err != nil {
+		return domain.PaymentResponse{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
 	// Execução da requisição
-	resp, err := h.client.Post(h.url, "application/json", bytes.NewBuffer(payload))
+	resp, err := h.client.Do(req)
 	if err != nil {
 		return domain.PaymentResponse{}, err
 	}

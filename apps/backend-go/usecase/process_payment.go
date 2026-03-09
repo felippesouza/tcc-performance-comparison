@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 
 // ProcessPaymentUseCase define a interface de entrada para a orquestração do pagamento.
 type ProcessPaymentUseCase interface {
-	Execute(request domain.Payment) (*domain.Payment, error)
+	Execute(ctx context.Context, request domain.Payment) (*domain.Payment, error)
 }
 
 // ProcessPaymentInteractor é a implementação da regra de negócio.
@@ -28,7 +29,7 @@ func NewProcessPaymentInteractor(repo domain.PaymentRepository, gateway domain.E
 }
 
 // Execute realiza a orquestração do fluxo de pagamento.
-func (i *ProcessPaymentInteractor) Execute(request domain.Payment) (*domain.Payment, error) {
+func (i *ProcessPaymentInteractor) Execute(ctx context.Context, request domain.Payment) (*domain.Payment, error) {
 	// 1. Persistir pagamento inicial (PENDENTE)
 	payment := domain.Payment{
 		ID:         uuid.New().String(),
@@ -39,13 +40,13 @@ func (i *ProcessPaymentInteractor) Execute(request domain.Payment) (*domain.Paym
 		CreatedAt:  time.Now(),
 	}
 
-	savedPayment, err := i.repository.Save(payment)
+	savedPayment, err := i.repository.Save(ctx, payment)
 	if err != nil {
 		return nil, errors.New("falha ao salvar o pagamento inicial: " + err.Error())
 	}
 
-	// 2. Chamar Gateway Externo (Aqui é onde as Goroutines brilham aguardando o I/O bloqueante)
-	response, err := i.externalGateway.Process(savedPayment)
+	// 2. Chamar Gateway Externo (O ctx propagado garante que se a req HTTP cair, isso aqui aborta)
+	response, err := i.externalGateway.Process(ctx, savedPayment)
 	if err != nil {
 		// Retorna erro, mas o status no banco continua PENDING, mantendo a consistência.
 		return nil, errors.New("timeout ou falha na adquirente externa: " + err.Error())
@@ -60,7 +61,7 @@ func (i *ProcessPaymentInteractor) Execute(request domain.Payment) (*domain.Paym
 	extID := response.ExternalID
 	updatedPayment := savedPayment.WithStatus(finalStatus, &extID)
 
-	finalPayment, err := i.repository.Save(updatedPayment)
+	finalPayment, err := i.repository.Save(ctx, updatedPayment)
 	if err != nil {
 		return nil, errors.New("falha ao atualizar status final: " + err.Error())
 	}

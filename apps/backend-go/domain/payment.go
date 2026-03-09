@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"time"
 )
 
@@ -28,8 +29,8 @@ func (p Payment) WithStatus(status string, extID *string) Payment {
 
 // PaymentRepository define o contrato para persistência.
 type PaymentRepository interface {
-	Save(payment Payment) (Payment, error)
-	FindByID(id string) (*Payment, error)
+	Save(ctx context.Context, payment Payment) (Payment, error)
+	FindByID(ctx context.Context, id string) (*Payment, error)
 }
 
 // PaymentResponse representa o retorno da adquirente externa.
@@ -40,5 +41,5 @@ type PaymentResponse struct {
 
 // ExternalGateway define o contrato para comunicação HTTP com o serviço de Mock.
 type ExternalGateway interface {
-	Process(payment Payment) (PaymentResponse, error)
+	Process(ctx context.Context, payment Payment) (PaymentResponse, error)
 }

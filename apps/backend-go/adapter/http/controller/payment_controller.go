@@ -39,10 +39,10 @@ func (c *PaymentController) CreatePayment(ctx *gin.Context) {
 		return
 	}
 
-	// Mapeamento e chamada ao Use Case
+	// Mapeamento e chamada ao Use Case propagando o contexto da requisição HTTP
 	paymentDomain := mapper.ToDomain(req)
 	
-	processed, err := c.useCase.Execute(paymentDomain)
+	processed, err := c.useCase.Execute(ctx.Request.Context(), paymentDomain)
 	if err != nil {
 		// Em um projeto real, você tiparia os erros de domínio para saber se é 400 ou 500.
 		// Para o escopo do TCC, qualquer falha no fluxo de negócio/infra retornará 500.
