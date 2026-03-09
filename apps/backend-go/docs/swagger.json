@@ -1,0 +1,98 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Backend em Go utilizando Goroutines para o TCC de Engenharia de Software.",
+        "title": "TCC Performance Gateway API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8082",
+    "basePath": "/",
+    "paths": {
+        "/payments": {
+            "post": {
+                "description": "Este endpoint recebe os dados de um cartão, valida a transação e consulta a adquirente externa.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Payment Gateway"
+                ],
+                "summary": "Processar um novo pagamento",
+                "parameters": [
+                    {
+                        "description": "Dados para criação de um novo pagamento",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.PaymentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Pagamento processado com sucesso",
+                        "schema": {
+                            "$ref": "#/definitions/dto.PaymentResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Dados da requisição inválidos ou falha de negócio",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro interno no servidor ou timeout da adquirente",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "dto.PaymentRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "cardNumber"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "cardNumber": {
+                    "type": "string",
+                    "maxLength": 19,
+                    "minLength": 13
+                }
+            }
+        },
+        "dto.PaymentResponse": {
+            "type": "object",
+            "properties": {
+                "externalId": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

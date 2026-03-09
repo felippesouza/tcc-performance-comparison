@@ -1,0 +1,66 @@
+basePath: /
+definitions:
+  dto.PaymentRequest:
+    properties:
+      amount:
+        type: number
+      cardNumber:
+        maxLength: 19
+        minLength: 13
+        type: string
+    required:
+    - amount
+    - cardNumber
+    type: object
+  dto.PaymentResponse:
+    properties:
+      externalId:
+        type: string
+      id:
+        type: string
+      status:
+        type: string
+    type: object
+host: localhost:8082
+info:
+  contact: {}
+  description: Backend em Go utilizando Goroutines para o TCC de Engenharia de Software.
+  title: TCC Performance Gateway API
+  version: "1.0"
+paths:
+  /payments:
+    post:
+      consumes:
+      - application/json
+      description: Este endpoint recebe os dados de um cartão, valida a transação
+        e consulta a adquirente externa.
+      parameters:
+      - description: Dados para criação de um novo pagamento
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.PaymentRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Pagamento processado com sucesso
+          schema:
+            $ref: '#/definitions/dto.PaymentResponse'
+        "400":
+          description: Dados da requisição inválidos ou falha de negócio
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro interno no servidor ou timeout da adquirente
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Processar um novo pagamento
+      tags:
+      - Payment Gateway
+swagger: "2.0"
