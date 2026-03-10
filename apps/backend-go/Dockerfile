@@ -2,15 +2,17 @@
 FROM golang:1.25-alpine AS builder
 
 # Variáveis de ambiente para build otimizado no Go
+# GOFLAGS=-mod=mod permite que o build atualize go.sum automaticamente se ausente
 ENV GO111MODULE=on \
     CGO_ENABLED=0 \
     GOOS=linux \
-    GOARCH=amd64
+    GOARCH=amd64 \
+    GOFLAGS=-mod=mod
 
 WORKDIR /app
 
-# Copia e baixa dependências primeiro
-COPY go.mod go.sum ./
+# Copia go.mod e resolve/baixa dependências (go.sum é gerado automaticamente)
+COPY go.mod ./
 RUN go mod download
 
 # Copia o código fonte e faz o build
