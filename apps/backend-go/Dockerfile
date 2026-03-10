@@ -2,11 +2,12 @@
 FROM golang:1.25-alpine AS builder
 
 # Variáveis de ambiente para build otimizado no Go
+# GOARCH não é fixado: Docker detecta automaticamente a arquitetura da plataforma
+# (amd64 em x86/GCP, arm64 em Apple M-series)
 # GOFLAGS=-mod=mod permite que o build atualize go.sum automaticamente se ausente
 ENV GO111MODULE=on \
     CGO_ENABLED=0 \
     GOOS=linux \
-    GOARCH=amd64 \
     GOFLAGS=-mod=mod
 
 WORKDIR /app

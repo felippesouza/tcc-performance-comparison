@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Configura o proxy do Go para evitar problemas de rede
 ENV GOPROXY=https://proxy.golang.org,direct
