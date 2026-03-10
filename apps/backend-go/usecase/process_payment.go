@@ -1,8 +1,16 @@
+// ============================================================
+// TCC — Comparação de Performance: Java 25 vs Go 1.25
+// Autor:       Felippe Gustavo de Souza e Silva
+// Instituição: USP ESALQ — Engenharia de Software
+// Orientador:  Prof. Marcos Jardel Henriques
+// Ano:         2025
+// Repositório: https://github.com/felippesouza/tcc-performance-comparison
+// ============================================================
 package usecase
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,14 +50,14 @@ func (i *ProcessPaymentInteractor) Execute(ctx context.Context, request domain.P
 
 	savedPayment, err := i.repository.Save(ctx, payment)
 	if err != nil {
-		return nil, errors.New("falha ao salvar o pagamento inicial: " + err.Error())
+		return nil, fmt.Errorf("falha ao salvar o pagamento inicial: %w", err)
 	}
 
 	// 2. Chamar Gateway Externo (O ctx propagado garante que se a req HTTP cair, isso aqui aborta)
 	response, err := i.externalGateway.Process(ctx, savedPayment)
 	if err != nil {
 		// Retorna erro, mas o status no banco continua PENDING, mantendo a consistência.
-		return nil, errors.New("timeout ou falha na adquirente externa: " + err.Error())
+		return nil, fmt.Errorf("timeout ou falha na adquirente externa: %w", err)
 	}
 
 	// 3. Atualizar status baseado na resposta externa
@@ -63,7 +71,7 @@ func (i *ProcessPaymentInteractor) Execute(ctx context.Context, request domain.P
 
 	finalPayment, err := i.repository.Save(ctx, updatedPayment)
 	if err != nil {
-		return nil, errors.New("falha ao atualizar status final: " + err.Error())
+		return nil, fmt.Errorf("falha ao atualizar status final: %w", err)
 	}
 
 	return &finalPayment, nil

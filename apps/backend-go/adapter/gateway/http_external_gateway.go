@@ -1,3 +1,11 @@
+// ============================================================
+// TCC — Comparação de Performance: Java 25 vs Go 1.25
+// Autor:       Felippe Gustavo de Souza e Silva
+// Instituição: USP ESALQ — Engenharia de Software
+// Orientador:  Prof. Marcos Jardel Henriques
+// Ano:         2025
+// Repositório: https://github.com/felippesouza/tcc-performance-comparison
+// ============================================================
 package gateway
 
 import (
@@ -27,11 +35,25 @@ func NewHttpExternalGateway(url string) *HttpExternalGateway {
 	}
 }
 
+// externalPaymentRequest é o DTO dedicado para a chamada à adquirente externa.
+// Evita expor campos internos da entidade de domínio (ID, Status, CreatedAt) no payload.
+// Equivalente ao record privado ExternalPaymentRequest do Java.
+type externalPaymentRequest struct {
+	PaymentID  string  `json:"payment_id"`
+	Amount     float64 `json:"amount"`
+	CardNumber string  `json:"card_number"`
+}
+
 // Process realiza a requisição POST para a API externa (simulada).
 // Em Go, essa chamada é "bloqueante" apenas na Goroutine atual. A thread do SO é liberada.
 func (h *HttpExternalGateway) Process(ctx context.Context, payment domain.Payment) (domain.PaymentResponse, error) {
-	// Serialização do payload
-	payload, err := json.Marshal(payment)
+	// Serializa apenas os campos necessários — não expõe a entidade de domínio inteira
+	reqBody := externalPaymentRequest{
+		PaymentID:  payment.ID,
+		Amount:     payment.Amount,
+		CardNumber: payment.CardNumber,
+	}
+	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		return domain.PaymentResponse{}, err
 	}
