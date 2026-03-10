@@ -1,3 +1,11 @@
+// ============================================================
+// TCC — Comparação de Performance: Java 25 vs Go 1.25
+// Autor:       Felippe Gustavo de Souza e Silva
+// Instituição: USP ESALQ — Engenharia de Software
+// Orientador:  Prof. Marcos Jardel Henriques
+// Ano:         2025
+// Repositório: https://github.com/felippesouza/tcc-performance-comparison
+// ============================================================
 package com.tcc.gateway.adapter.gateway;
 
 import com.tcc.gateway.domain.ExternalGateway;
@@ -23,11 +31,18 @@ public class HttpExternalGateway implements ExternalGateway {
 
     @Override
     public ExternalGateway.PaymentResponse process(Payment payment) {
-        // Chamada síncrona que será gerenciada pelas Virtual Threads
+        // Chamada síncrona que será gerenciada pelas Virtual Threads.
+        // Usa um DTO dedicado para não expor campos internos da entidade de domínio
+        // (status, createdAt) no payload enviado à adquirente — equivalente ao
+        // externalPaymentRequest do Go.
+        var request = new ExternalPaymentRequest(payment.id(), payment.amount(), payment.cardNumber());
         return restClient.post()
             .uri(apiPath)
-            .body(payment)
+            .body(request)
             .retrieve()
             .body(ExternalGateway.PaymentResponse.class);
     }
+
+    // DTO privado para a chamada externa: expõe apenas os campos necessários à adquirente.
+    private record ExternalPaymentRequest(String paymentId, java.math.BigDecimal amount, String cardNumber) {}
 }

@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 5s      # Coleta a cada 5s para granularidade fina durante o benchmark
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Backend Java 25 — Virtual Threads (Spring Boot Actuator)
+  - job_name: 'backend-java'
+    static_configs:
+      - targets: ['backend-java:8081']
+    metrics_path: /actuator/prometheus
+
+  # Backend Go 1.25 — Goroutines (prometheus/client_golang)
+  - job_name: 'backend-go'
+    static_configs:
+      - targets: ['backend-go:8082']
+    metrics_path: /metrics
+
+  # Auto-monitoramento do Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -23,4 +23,14 @@ ENV SERVER_PORT=8081
 EXPOSE 8081
 
 # Executa o Java habilitando flags recomendadas para Virtual Threads (ZGC Generacional)
-ENTRYPOINT ["java", "-XX:+UseZGC", "-XX:+ZGenerational", "-jar", "app.jar"]
+# Flags de performance e observabilidade para Virtual Threads:
+# -XX:+UseZGC -XX:+ZGenerational → GC de baixa latência, recomendado com Loom
+# -Djdk.tracePinnedThreads=full  → Loga no stdout quando uma Virtual Thread fica "pinned"
+#                                   (presa na carrier thread por synchronized/native).
+#                                   CRÍTICO para a pesquisa: detecta se Hibernate/JDBC
+#                                   cancela o benefício das Virtual Threads.
+ENTRYPOINT ["java", \
+  "-XX:+UseZGC", \
+  "-XX:+ZGenerational", \
+  "-Djdk.tracePinnedThreads=full", \
+  "-jar", "app.jar"]

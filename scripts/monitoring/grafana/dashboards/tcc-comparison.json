@@ -1,0 +1,242 @@
+{
+  "title": "TCC — Java 25 Virtual Threads vs Go 1.25 Goroutines",
+  "uid": "tcc-comparison",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-10m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Throughput — Requisições por Segundo",
+      "description": "Taxa de requests processados. Métrica central: qual modelo sustenta mais RPS sob carga igual.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-java\"}[30s]))",
+          "legendFormat": "☕ Java 25 — Virtual Threads",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-go\"}[30s]))",
+          "legendFormat": "🐹 Go 1.25 — Goroutines",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Latência p95 — Tempo de Resposta (95% das requisições)",
+      "description": "Percentil 95 da latência. Loom e Goroutines competem diretamente aqui em workloads I/O bound.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"backend-java\"}[30s])) by (le))",
+          "legendFormat": "☕ Java 25 p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"backend-go\"}[30s])) by (le))",
+          "legendFormat": "🐹 Go 1.25 p95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latência p99 — Cauda Longa (Piores 1%)",
+      "description": "Percentil 99. Revela comportamento sob pressão extrema — onde Virtual Thread pinning aparece como spikes.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"backend-java\"}[30s])) by (le))",
+          "legendFormat": "☕ Java 25 p99",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"backend-go\"}[30s])) by (le))",
+          "legendFormat": "🐹 Go 1.25 p99",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Taxa de Erros (5xx)",
+      "description": "Percentual de erros. Ambos devem ficar abaixo de 1% para o TCC ser válido (threshold do k6).",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-java\",outcome=\"SERVER_ERROR\"}[30s])) / sum(rate(http_server_requests_seconds_count{job=\"backend-java\"}[30s]))",
+          "legendFormat": "☕ Java 25 Erros",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-go\",outcome=\"SERVER_ERROR\"}[30s])) / sum(rate(http_server_requests_seconds_count{job=\"backend-go\"}[30s]))",
+          "legendFormat": "🐹 Go 1.25 Erros",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Modelo de Concorrência — Virtual Threads vs Goroutines Ativas",
+      "description": "O painel mais importante do TCC: mostra quantas unidades de concorrência cada runtime criou. Ambas devem subir proporcionalmente à carga — isso PROVA que ambos escalam sem esgotar OS threads.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads{job=\"backend-java\"}",
+          "legendFormat": "☕ Java — Virtual Threads Vivas",
+          "refId": "A"
+        },
+        {
+          "expr": "go_goroutines{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go — Goroutines Ativas",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Footprint de Memória (Heap)",
+      "description": "Consumo de memória heap. Virtual Threads são mais pesadas por thread (stack JVM) vs Goroutines (stack dinâmica mínima de 2-8KB). Diferença esperada: Java consome mais heap por VT.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{job=\"backend-java\", area=\"heap\"})",
+          "legendFormat": "☕ Java 25 — Heap Usado",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_heap_inuse_bytes{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go 1.25 — Heap In-Use",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Uso de CPU",
+      "description": "CPU consumida. Em I/O bound puro ambos devem ficar baixos — CPU alta indica contenção de threads ou GC excessivo.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "process_cpu_usage{job=\"backend-java\"}",
+          "legendFormat": "☕ Java 25 — CPU",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(process_cpu_seconds_total{job=\"backend-go\"}[30s])",
+          "legendFormat": "🐹 Go 1.25 — CPU",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "OS Threads do Runtime Go (go_threads)",
+      "description": "Threads de SO criadas pelo runtime Go. Deve permanecer próximo de GOMAXPROCS (nº de vCPUs) mesmo com centenas de goroutines — comprova que goroutines são multiplexadas, não mapeadas 1:1 em OS threads.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "go_threads{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go — OS Threads Totais",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "GC — Pausas de Garbage Collection (Java ZGC vs Go GC)",
+      "description": "Duração das pausas de GC. ZGC do Java 25 deve ser sub-milissegundo. Go GC concurrent também deve ser mínimo. Pausas altas aqui explicariam spikes na latência p99.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum{job=\"backend-java\"}[30s]) / rate(jvm_gc_pause_seconds_count{job=\"backend-java\"}[30s])",
+          "legendFormat": "☕ Java 25 — GC Pausa Média (ZGC)",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(go_gc_duration_seconds_sum{job=\"backend-go\"}[30s]) / rate(go_gc_duration_seconds_count{job=\"backend-go\"}[30s])",
+          "legendFormat": "🐹 Go 1.25 — GC Pausa Média",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}
