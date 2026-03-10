@@ -55,6 +55,7 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/gateway_db
       - EXTERNAL_API_BASE_URL=http://mock-api:8080
       - SPRING_DATA_REDIS_HOST=redis-cache
+      - HIKARI_MAX_POOL_SIZE=${HIKARI_MAX_POOL_SIZE:-200}
     depends_on:
       postgres-db:
         condition: service_healthy
@@ -74,6 +75,7 @@ services:
       - MOCK_API_URL=http://mock-api:8080/process-payment
       - REDIS_URL=redis://redis-cache:6379
       - PORT=8082
+      - PG_MAX_CONNS=${PG_MAX_CONNS:-200}
     depends_on:
       postgres-db:
         condition: service_healthy

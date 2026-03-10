@@ -106,7 +106,14 @@ func main() {
 	}
 
 	// Tuning equivalente ao HikariCP do Java para alta concorrência
-	config.MaxConns = 200
+	maxConns := int32(200)
+	if envMaxConns := os.Getenv("PG_MAX_CONNS"); envMaxConns != "" {
+		if parsed, err := strconv.ParseInt(envMaxConns, 10, 32); err == nil {
+			maxConns = int32(parsed)
+		}
+	}
+	config.MaxConns = maxConns
+	slog.Info("Pool de conexões configurado", "max_conns", maxConns)
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
