@@ -1,5 +1,8 @@
 # Stage 1: Build
-FROM maven:3.9.9-eclipse-temurin-25-alpine AS builder
+FROM eclipse-temurin:25-jdk-alpine AS builder
+
+# Instalar Maven (já que a imagem oficial maven-25 pode não estar pronta)
+RUN apk add --no-cache maven
 
 WORKDIR /app
 COPY pom.xml ./

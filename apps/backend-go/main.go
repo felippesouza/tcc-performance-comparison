@@ -90,7 +90,7 @@ func main() {
 	}
 
 	// Tuning equivalente ao HikariCP do Java para alta concorrência
-	config.MaxConns = 50
+	config.MaxConns = 200
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
