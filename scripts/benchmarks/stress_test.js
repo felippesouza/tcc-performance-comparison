@@ -6,6 +6,19 @@ export const errorRate = new Rate('errors');
 export const idempotencyHits = new Rate('idempotency_cache_hits');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ATENÇÃO — ISOLAMENTO ENTRE TESTES (CRÍTICO PARA VALIDADE CIENTÍFICA)
+//
+// O Redis de idempotência persiste entre execuções do k6. Como __ITER reseta
+// a zero em cada `k6 run`, um teste que roda APÓS outro vai encontrar as chaves
+// do teste anterior no Redis, gerando cache hits espúrios e inflando throughput.
+//
+// SEMPRE execute antes de cada teste:
+//   docker exec tcc-redis redis-cli FLUSHALL
+//
+// Ou use o helper abaixo para limpar automaticamente via setup():
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SELEÇÃO DE CENÁRIO
 // Uso: k6 run -e SCENARIO=baseline -e TARGET_URL=http://... stress_test.js
 //
