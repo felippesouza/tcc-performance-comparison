@@ -57,6 +57,19 @@ func (p Payment) WithStatus(status string, extID *string) Payment {
 	}
 }
 
+// Validate verifica as invariantes do domínio na criação da entidade Payment.
+// Simétrico ao compact constructor do record Payment.java no backend Java.
+// Retorna DomainError (→ HTTP 400) para dados inválidos de negócio.
+func (p Payment) Validate() error {
+	if p.Amount <= 0 {
+		return NewDomainError("o valor do pagamento deve ser maior que zero")
+	}
+	if len(p.CardNumber) < 13 || len(p.CardNumber) > 19 {
+		return NewDomainError("o número do cartão deve ter entre 13 e 19 caracteres")
+	}
+	return nil
+}
+
 // PaymentRepository define o contrato para persistência.
 type PaymentRepository interface {
 	Save(ctx context.Context, payment Payment) (Payment, error)

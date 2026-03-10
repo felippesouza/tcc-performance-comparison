@@ -38,6 +38,13 @@ func NewProcessPaymentInteractor(repo domain.PaymentRepository, gateway domain.E
 
 // Execute realiza a orquestração do fluxo de pagamento.
 func (i *ProcessPaymentInteractor) Execute(ctx context.Context, request domain.Payment) (*domain.Payment, error) {
+	// 0. Validação de domínio: invariantes da entidade antes de qualquer I/O.
+	// Simétrico ao compact constructor do Payment.java — garante que regras de negócio
+	// são aplicadas independente da camada HTTP.
+	if err := request.Validate(); err != nil {
+		return nil, err
+	}
+
 	// 1. Persistir pagamento inicial (PENDENTE)
 	payment := domain.Payment{
 		ID:         uuid.New().String(),

@@ -10,9 +10,12 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +29,7 @@ import (
 	"github.com/tcc/backend-go/adapter/cache"
 	"github.com/tcc/backend-go/adapter/gateway"
 	"github.com/tcc/backend-go/adapter/http/controller"
+	"github.com/tcc/backend-go/adapter/http/middleware"
 	"github.com/tcc/backend-go/adapter/repository"
 	"github.com/tcc/backend-go/usecase"
 
@@ -78,6 +82,17 @@ func prometheusMiddleware() gin.HandlerFunc {
 // @host localhost:8082
 // @BasePath /
 func main() {
+	// Structured JSON logging — equivalente ao logstash-logback-encoder do Java.
+	// slog é a biblioteca padrão do Go 1.21+ para logs estruturados.
+	// Inclui correlationId quando disponível via context (propagado pelo middleware).
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			// Adiciona campo "app" e "runtime" em todos os logs (equivalente ao customFields do logback)
+			return a
+		},
+	})))
+
 	// 1. Configuração do Banco de Dados (pgxpool)
 	dbURL := "postgres://user:password@localhost:5432/gateway_db"
 	if envDB := os.Getenv("DATABASE_URL"); envDB != "" {
@@ -86,7 +101,8 @@ func main() {
 
 	config, err := pgxpool.ParseConfig(dbURL)
 	if err != nil {
-		log.Fatalf("Erro ao fazer parse da URL do banco: %v", err)
+		slog.Error("Erro ao fazer parse da URL do banco", "error", err)
+		os.Exit(1)
 	}
 
 	// Tuning equivalente ao HikariCP do Java para alta concorrência
@@ -94,7 +110,8 @@ func main() {
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
-		log.Fatalf("Erro ao conectar no banco de dados: %v", err)
+		slog.Error("Erro ao conectar no banco de dados", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
@@ -109,7 +126,8 @@ func main() {
 			created_at TIMESTAMP NOT NULL
 		);
 	`); err != nil {
-		log.Fatalf("Erro ao criar schema do banco: %v", err)
+		slog.Error("Erro ao criar schema do banco", "error", err)
+		os.Exit(1)
 	}
 
 	// 3. Configuração do Redis (Cache de Idempotência)
@@ -120,7 +138,8 @@ func main() {
 
 	redisOpts, err := goredis.ParseURL(redisURL)
 	if err != nil {
-		log.Fatalf("Erro ao fazer parse da URL do Redis: %v", err)
+		slog.Error("Erro ao fazer parse da URL do Redis", "error", err)
+		os.Exit(1)
 	}
 
 	redisClient := goredis.NewClient(redisOpts)
@@ -144,7 +163,8 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
-	r.Use(prometheusMiddleware()) // Métricas HTTP simétricas ao Spring Boot Actuator
+	r.Use(middleware.CorrelationID()) // Rastreabilidade por requisição — simétrico ao CorrelationIdFilter do Java
+	r.Use(prometheusMiddleware())     // Métricas HTTP simétricas ao Spring Boot Actuator
 
 	// Endpoint de Pagamentos
 	r.POST("/payments", paymentController.CreatePayment)
@@ -164,14 +184,43 @@ func main() {
 	// Endpoint Prometheus
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// 6. Iniciando o servidor na porta 8082 (Java está na 8081)
+	// 6. Servidor com Graceful Shutdown na porta 8082 (Java está na 8081)
 	port := "8082"
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		port = envPort
 	}
 
-	log.Printf("Iniciando backend Go (Goroutines) na porta %s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("Erro ao iniciar o servidor: %v", err)
+	// Equivalente ao server.shutdown=graceful do Spring Boot.
+	// Aguarda requests em-flight completarem antes de encerrar (SIGTERM/SIGINT).
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
 	}
+
+	// Canal para receber sinais do SO
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// Inicia o servidor em uma goroutine separada
+	go func() {
+		slog.Info("Iniciando backend Go (Goroutines)", "port", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Erro ao iniciar o servidor", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Bloqueia até receber sinal de encerramento
+	<-quit
+	slog.Info("Sinal de encerramento recebido — aguardando requests em-flight (30s)...")
+
+	// Contexto com timeout para o shutdown gracioso
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("Erro durante o shutdown gracioso", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("Servidor encerrado com sucesso.")
 }

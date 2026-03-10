@@ -10,7 +10,7 @@ package controller
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -60,7 +60,7 @@ func (c *PaymentController) CreatePayment(ctx *gin.Context) {
 			return
 		} else if err != nil {
 			// Redis indisponível: degradação graciosa — procede sem proteção de idempotência
-			log.Printf("[WARN] Redis indisponível para leitura de idempotência: %v", err)
+			slog.Warn("Redis indisponível para leitura de idempotência", "error", err)
 		}
 	}
 
@@ -84,7 +84,7 @@ func (c *PaymentController) CreatePayment(ctx *gin.Context) {
 	if idempotencyKey != "" {
 		if err := c.idempotency.Set(ctx.Request.Context(), idempotencyKey, response); err != nil {
 			// Redis indisponível: pagamento já foi processado com sucesso, só loga o aviso
-			log.Printf("[WARN] Falha ao salvar idempotência no Redis: %v", err)
+			slog.Warn("Falha ao salvar idempotência no Redis", "error", err)
 		}
 	}
 
