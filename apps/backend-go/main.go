@@ -48,14 +48,28 @@ var httpRequestDuration = prometheus.NewHistogramVec(
 	[]string{"method", "uri", "status", "outcome"},
 )
 
+// httpRequestsInFlight rastreia requisições HTTP sendo processadas simultaneamente.
+// Gauge direto — mais preciso que a estimativa pela Lei de Little usada no Java.
+// Simétrico ao conceito de "active threads" do Java Virtual Threads.
+var httpRequestsInFlight = prometheus.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "http_requests_in_flight",
+		Help: "Número de requisições HTTP sendo processadas simultaneamente",
+	},
+)
+
 func init() {
 	prometheus.MustRegister(httpRequestDuration)
+	prometheus.MustRegister(httpRequestsInFlight)
 }
 
 // prometheusMiddleware registra a duração de cada request com os mesmos labels
 // que o Spring Boot Actuator usa, permitindo queries idênticas no Grafana.
 func prometheusMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		httpRequestsInFlight.Inc()
+		defer httpRequestsInFlight.Dec()
+
 		start := time.Now()
 		c.Next()
 

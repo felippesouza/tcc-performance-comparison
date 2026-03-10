@@ -303,6 +303,207 @@
       "options": {
         "legend": { "displayMode": "list", "placement": "bottom" }
       }
+    },
+    {
+      "id": 12,
+      "title": "RAM Total do Processo (RSS) — Footprint Real",
+      "description": "Memória RAM total consumida pelo processo (Resident Set Size). Esta é a métrica honesta para comparar footprint: Java inclui JVM overhead, metaspace, code cache e stacks de threads além do heap. Go inclui apenas o binário estático + goroutine stacks. Diferença esperada: Java consome 3-5x mais RAM que Go.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 56, "w": 24, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "process_memory_rss_bytes{job=\"backend-java\"}",
+          "legendFormat": "☕ Java 25 — RAM Total (RSS)",
+          "refId": "A"
+        },
+        {
+          "expr": "process_resident_memory_bytes{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go 1.25 — RAM Total (RSS)",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 13,
+      "title": "JVM Non-Heap — Metaspace e Code Cache (Overhead da JVM)",
+      "description": "Memória fora do heap: Metaspace (classes carregadas pelo classloader) e Code Cache (JIT compiler). Este é o 'imposto invisível' da JVM — ausente no Go. Sob carga alta, o JIT compila mais código quente e o Code Cache cresce. Metaspace cresce com o número de classes carregadas pelo Spring Framework.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 64, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{job=\"backend-java\", area=\"nonheap\"})",
+          "legendFormat": "☕ Java 25 — Non-Heap Total",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_memory_used_bytes{job=\"backend-java\", id=\"Metaspace\"}",
+          "legendFormat": "☕ Java 25 — Metaspace",
+          "refId": "B"
+        },
+        {
+          "expr": "jvm_memory_used_bytes{job=\"backend-java\", id=\"CodeCache\"}",
+          "legendFormat": "☕ Java 25 — Code Cache (JIT)",
+          "refId": "C"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 14,
+      "title": "HikariCP — Tempo de Espera por Conexão DB (Pool Contention)",
+      "description": "Tempo médio que uma Virtual Thread aguarda para obter uma conexão do pool HikariCP. No spike (500 VUs, pool=200), 300 threads ficam enfileiradas — este painel mostra o tempo médio de espera na fila. É a prova quantitativa da hipótese: se Go supera Java no spike, este gráfico mostrará tempos de espera crescentes no Java. Com pool=500 (docker-compose.pool-experiment.yml), a espera deve cair para zero.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 64, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(hikaricp_connections_acquire_seconds_sum{job=\"backend-java\"}[30s]) / rate(hikaricp_connections_acquire_seconds_count{job=\"backend-java\"}[30s])",
+          "legendFormat": "☕ Java 25 — Tempo Médio de Acquire",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(hikaricp_connections_acquire_seconds_bucket{job=\"backend-java\"}[30s]))",
+          "legendFormat": "☕ Java 25 — Acquire p95",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Stack Memory — Goroutines vs Thread Stacks JVM",
+      "description": "Memória de stack em uso. Go: stack dinâmica por goroutine inicia com ~2KB e cresce conforme necessário (go_memstats_stack_inuse_bytes). Java: stacks de OS threads (1MB default por thread). Com 500 VUs concorrentes: Go usa ~1MB total de stack; Java usa ~500MB apenas em stacks — evidência direta da vantagem de memória das goroutines.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 72, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "go_memstats_stack_inuse_bytes{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go 1.25 — Stack Total (goroutines)",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_stack_sys_bytes{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go 1.25 — Stack Reservado (sistema)",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 16,
+      "title": "GC — Taxa de Alocação de Memória (Pressão do GC)",
+      "description": "Bytes alocados por segundo por cada runtime. Taxa alta = mais pressão sobre o GC. No spike, se Java aloca muito mais que Go por requisição, o ZGC será acionado mais frequentemente — o que correlaciona com os spikes de latência p99 do painel 3.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 72, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_memory_allocated_bytes_total{job=\"backend-java\"}[30s])",
+          "legendFormat": "☕ Java 25 — Taxa de Alocação (bytes/s)",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(go_memstats_alloc_bytes_total{job=\"backend-go\"}[30s])",
+          "legendFormat": "🐹 Go 1.25 — Taxa de Alocação (bytes/s)",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 17,
+      "title": "Requests em-flight — Concorrência Real em Processamento",
+      "description": "Número de requisições sendo processadas simultaneamente (Lei de Little: N = λ × W). Java usa Virtual Threads para processar todas em paralelo sem bloqueio de OS threads. Go usa goroutines. Ambos devem escalar linearmente com carga — colapso neste gráfico indica saturação do modelo de concorrência ou do pool de conexões.",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 80, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-java\"}[30s])) * histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{job=\"backend-java\"}[30s])) by (le))",
+          "legendFormat": "☕ Java 25 — Requests in-flight (estimado, Lei de Little)",
+          "refId": "A"
+        },
+        {
+          "expr": "http_requests_in_flight{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go 1.25 — Requests in-flight (gauge direto)",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "id": 18,
+      "title": "Memória JVM Total (Heap + Non-Heap) vs Go RSS",
+      "description": "Visão consolidada: Java heap + non-heap vs Go RSS total. Esta comparação direta responde 'quanto custa rodar cada backend em RAM' — argumento direto para dimensionamento de instâncias GCP e custo operacional.",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 80, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{job=\"backend-java\"})",
+          "legendFormat": "☕ Java 25 — JVM Total (Heap + Non-Heap)",
+          "refId": "A"
+        },
+        {
+          "expr": "go_memstats_sys_bytes{job=\"backend-go\"}",
+          "legendFormat": "🐹 Go 1.25 — Memória Total do Runtime",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
     }
   ]
 }
