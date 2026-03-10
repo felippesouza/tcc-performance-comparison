@@ -8,7 +8,9 @@
 #   ./scripts/benchmarks/run_benchmarks.sh --scenario stress
 #   ./scripts/benchmarks/run_benchmarks.sh --rounds 1
 #
-# Saída: results/runs/<timestamp>/<backend>_<scenario>_round<N>.json
+# Saída:
+#   results/runs/<timestamp>/<backend>_<scenario>_round<N>.json  — k6 métricas
+#   results/runs/<timestamp>/<backend>_<scenario>_round<N>.mem   — RAM do container
 # ============================================================
 
 set -euo pipefail
@@ -34,27 +36,26 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Validação de dependências ─────────────────────────────────
-command -v k6    >/dev/null 2>&1 || { echo "❌ k6 não encontrado. Instale: brew install k6"; exit 1; }
-command -v docker >/dev/null 2>&1 || { echo "❌ docker não encontrado."; exit 1; }
+command -v k6     >/dev/null 2>&1 || { echo "k6 nao encontrado. Instale: brew install k6"; exit 1; }
+command -v docker >/dev/null 2>&1 || { echo "docker nao encontrado."; exit 1; }
 
 mkdir -p "$RESULTS_DIR"
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  TCC Benchmark Runner — $(date '+%Y-%m-%d %H:%M:%S')          ║"
-echo "╠══════════════════════════════════════════════════════════╣"
-echo "║  Rounds por cenário : $ROUNDS                                   ║"
-echo "║  Cenário(s)         : $SCENARIO_FILTER                          ║"
-echo "║  Resultados em      : results/runs/$TIMESTAMP          ║"
-echo "╚══════════════════════════════════════════════════════════╝"
+echo "============================================================"
+echo "  TCC Benchmark Runner -- $(date '+%Y-%m-%d %H:%M:%S')"
+echo "  Rounds por cenario : $ROUNDS"
+echo "  Cenario(s)         : $SCENARIO_FILTER"
+echo "  Resultados em      : results/runs/$TIMESTAMP"
+echo "============================================================"
 echo ""
 
 # ── Funções auxiliares ────────────────────────────────────────
 
 flush_redis() {
-  echo "  🔄 Limpando Redis (FLUSHALL)..."
+  echo "  [redis] FLUSHALL..."
   docker exec "$REDIS_CONTAINER" redis-cli FLUSHALL > /dev/null 2>&1 \
-    || { echo "  ⚠️  Aviso: não foi possível limpar Redis (container rodando?)"; }
+    || { echo "  AVISO: nao foi possivel limpar Redis"; }
   sleep 1
 }
 
@@ -64,10 +65,26 @@ run_scenario() {
   local scenario="$3"
   local round="$4"
   local output_file="$RESULTS_DIR/${backend}_${scenario}_round${round}.json"
+  local mem_file="$RESULTS_DIR/${backend}_${scenario}_round${round}.mem"
 
-  echo "  ▶ [$backend] cenário=$scenario round=$round/$ROUNDS"
+  # Mapeia backend para nome do container Docker
+  local container_name
+  case "$backend" in
+    java) container_name="tcc-backend-java" ;;
+    go)   container_name="tcc-backend-go"   ;;
+    *)    container_name="tcc-backend-$backend" ;;
+  esac
+
+  echo "  >> [$backend] cenario=$scenario round=$round/$ROUNDS"
   flush_redis
 
+  # Captura RAM do container em streaming enquanto o k6 roda.
+  # docker stats sem --no-stream emite uma linha por segundo automaticamente.
+  # Formato capturado: "256MiB / 8GiB" — o analyze_results.py extrai o pico.
+  docker stats --format "{{.MemUsage}}" "$container_name" >> "$mem_file" 2>/dev/null &
+  local STATS_PID=$!
+
+  # Executa o k6
   k6 run \
     --env SCENARIO="$scenario" \
     --env TARGET_URL="$url" \
@@ -75,7 +92,13 @@ run_scenario() {
     --quiet \
     "$K6_SCRIPT" 2>&1 | tail -5 || true
 
-  echo "    ✅ Salvo: $(basename "$output_file")"
+  # Para a coleta de memória
+  kill "$STATS_PID" 2>/dev/null || true
+  wait "$STATS_PID" 2>/dev/null || true
+
+  local mem_samples
+  mem_samples=$(wc -l < "$mem_file" 2>/dev/null || echo "0")
+  echo "    OK: $(basename "$output_file")  |  RAM: $mem_samples amostras -> $(basename "$mem_file")"
 }
 
 # ── Definição dos cenários ────────────────────────────────────
@@ -93,9 +116,9 @@ total_runs=$(( ${#SCENARIOS[@]} * ${#BACKENDS[@]} * ROUNDS ))
 current=0
 
 for scenario in "${SCENARIOS[@]}"; do
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📊 CENÁRIO: $(echo "$scenario" | tr '[:lower:]' '[:upper:]')"
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "------------------------------------------------------------"
+  echo "  CENARIO: $(echo "$scenario" | tr '[:lower:]' '[:upper:]')"
+  echo "------------------------------------------------------------"
 
   for round in $(seq 1 "$ROUNDS"); do
     echo ""
@@ -115,11 +138,12 @@ for scenario in "${SCENARIOS[@]}"; do
 done
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  ✅ Benchmark concluído!                                 ║"
-echo "║  Resultados: results/runs/$TIMESTAMP              ║"
-echo "╚══════════════════════════════════════════════════════════╝"
+echo "============================================================"
+echo "  Benchmark concluido!"
+echo "  Resultados: results/runs/$TIMESTAMP"
+echo "============================================================"
 echo ""
-echo "  Próximo passo — gerar relatório estatístico:"
+echo "  Gerar relatorio estatistico com memoria:"
 echo "  python3 scripts/benchmarks/analyze_results.py results/runs/$TIMESTAMP"
+echo "  python3 scripts/benchmarks/analyze_results.py results/runs/$TIMESTAMP --format markdown"
 echo ""
