@@ -25,3 +25,6 @@ out/
 Thumbs.db
 *.log
 docker-compose.override.yml
+
+# k6 raw JSON output — arquivos grandes (100-200MB por run)
+results/runs/

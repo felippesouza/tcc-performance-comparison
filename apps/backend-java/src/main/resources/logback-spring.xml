@@ -9,28 +9,6 @@
 
     <appender name="JSON_STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <providers>
-                <timestamp>
-                    <fieldName>timestamp</fieldName>
-                    <pattern>yyyy-MM-dd'T'HH:mm:ss.SSSZ</pattern>
-                </timestamp>
-                <logLevel>
-                    <fieldName>level</fieldName>
-                </logLevel>
-                <loggerName>
-                    <fieldName>logger</fieldName>
-                    <shortenedLoggerNameLength>36</shortenedLoggerNameLength>
-                </loggerName>
-                <message>
-                    <fieldName>message</fieldName>
-                </message>
-                <mdc>
-                    <!-- correlationId e populado pelo CorrelationIdFilter via MDC -->
-                </mdc>
-                <stackTrace>
-                    <fieldName>stackTrace</fieldName>
-                </stackTrace>
-            </providers>
             <customFields>{"app":"${appName}","runtime":"java25-virtual-threads"}</customFields>
         </encoder>
     </appender>

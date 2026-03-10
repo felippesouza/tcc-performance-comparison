@@ -94,7 +94,7 @@ current=0
 
 for scenario in "${SCENARIOS[@]}"; do
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "📊 CENÁRIO: ${scenario^^}"
+  echo "📊 CENÁRIO: $(echo "$scenario" | tr '[:lower:]' '[:upper:]')"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   for round in $(seq 1 "$ROUNDS"); do
