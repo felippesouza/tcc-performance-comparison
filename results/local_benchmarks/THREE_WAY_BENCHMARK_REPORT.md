@@ -1,6 +1,6 @@
 # Relatorio Estatistico -- Benchmark TCC
-**Diretorio:** `results/runs/20260311_141726`
-**Gerado em:** 20260311_141726
+**Diretorio:** `results/runs/20260311_162612`
+**Gerado em:** 20260311_162612
 
 > Valores: media +/- desvio padrao (N rodadas por cenario/backend)
 > RAM capturada via `docker stats` em tempo real durante cada k6 run
@@ -9,38 +9,38 @@
 
 | Metrica | Java 25 (VT) | Go 1.25 | Quarkus Native | Java vs Go | Java vs Quarkus | Go vs Quarkus |
 | :--- | ---: | ---: | ---: | :--- | :--- | :--- |
-| Latencia Media (ms) | 357.1 +/-1.0 | 353.3 +/-0.6 | 354.7 +/-0.5 | Empate | Empate | Empate |
-| Mediana p50 (ms) | 357.1 +/-1.8 | 352.3 +/-2.0 | 354.4 +/-1.4 | Empate | Empate | Empate |
-| p95 (ms) | 491.4 +/-2.7 | 488.8 +/-0.2 | 489.8 +/-0.9 | Empate | Empate | Empate |
-| p99 (ms) | 503.9 +/-1.4 | 500.9 +/-0.9 | 502.5 +/-0.6 | Empate | Empate | Empate |
-| Total Requests | 2924.3 +/-8.1 | 2949.0 +/-5.3 | 2941.7 +/-3.5 | Empate | Empate | Empate |
+| Latencia Media (ms) | 358.9 +/-1.1 | 352.7 +/-1.0 | 358.0 +/-0.7 | Empate | Empate | Empate |
+| Mediana p50 (ms) | 359.7 +/-2.0 | 351.2 +/-1.1 | 357.4 +/-0.6 | Go -2.4% | Empate | Empate |
+| p95 (ms) | 493.1 +/-2.1 | 489.5 +/-0.5 | 492.3 +/-0.4 | Empate | Empate | Empate |
+| p99 (ms) | 506.1 +/-2.9 | 501.8 +/-0.7 | 504.0 +/-0.4 | Empate | Empate | Empate |
+| Total Requests | 2912.0 +/-7.0 | 2952.7 +/-8.3 | 2919.0 +/-5.3 | Empate | Empate | Empate |
 | Taxa de Erro (%) | 0.00% | 0.00% | 0.00% | Empate | Empate | Empate |
-| **RAM Pico (MB)**  | 755.2 +/-56.3 MB | 33.0 +/-2.1 MB | 56.5 +/-9.7 MB | Go -95.6% | Go -92.5% | Java -71.3% |
-| **RAM Media (MB)** | 746.9 +/-59.7 MB | 29.6 +/-2.0 MB | 51.8 +/-11.2 MB | Go -96.0% | Go -93.1% | Java -74.9% |
+| **RAM Pico (MB)**  | 753.0 +/-96.3 MB | 61.0 +/-0.9 MB | 55.9 +/-11.1 MB | Go -91.9% | Go -92.6% | Go -8.3% |
+| **RAM Media (MB)** | 733.0 +/-90.6 MB | 57.6 +/-1.2 MB | 51.8 +/-10.9 MB | Go -92.1% | Go -92.9% | Go -10.0% |
 
 ## Cenario: STRESS (200 VUs, ~2 min)
 
 | Metrica | Java 25 (VT) | Go 1.25 | Quarkus Native | Java vs Go | Java vs Quarkus | Go vs Quarkus |
 | :--- | ---: | ---: | ---: | :--- | :--- | :--- |
-| Latencia Media (ms) | 353.3 +/-0.2 | 350.9 +/-0.3 | 2723.7 +/-5.0 | Empate | Java -670.9% | Java -676.1% |
-| Mediana p50 (ms) | 352.8 +/-0.7 | 350.7 +/-0.5 | 3294.3 +/-12.2 | Empate | Java -833.7% | Java -839.3% |
-| p95 (ms) | 488.5 +/-0.3 | 486.5 +/-0.4 | 3563.4 +/-12.7 | Empate | Java -629.4% | Java -632.5% |
-| p99 (ms) | 500.6 +/-0.4 | 498.6 +/-0.2 | 3629.9 +/-24.4 | Empate | Java -625.2% | Java -628.0% |
-| Total Requests | 37559.7 +/-7.6 | 37761.0 +/-29.5 | 6096.3 +/-8.1 | Empate | Java +83.8% | Java +83.9% |
+| Latencia Media (ms) | 354.0 +/-1.1 | 351.8 +/-1.0 | 2719.7 +/-15.8 | Empate | Java -668.3% | Java -673.1% |
+| Mediana p50 (ms) | 354.3 +/-1.1 | 351.6 +/-1.3 | 3294.0 +/-16.9 | Empate | Java -829.8% | Java -836.8% |
+| p95 (ms) | 488.7 +/-1.0 | 486.8 +/-0.5 | 3561.1 +/-8.4 | Empate | Java -628.8% | Java -631.6% |
+| p99 (ms) | 500.6 +/-1.0 | 498.7 +/-0.5 | 3626.5 +/-5.7 | Empate | Java -624.5% | Java -627.2% |
+| Total Requests | 37505.3 +/-101.7 | 37690.7 +/-80.8 | 6104.7 +/-34.0 | Empate | Java +83.7% | Java +83.8% |
 | Taxa de Erro (%) | 0.0 +/-0.0 | 0.0 +/-0.0 | 0.0 +/-0.0 | --- | Empate | Go -100.0% |
-| **RAM Pico (MB)**  | 1595.5 +/-577.1 MB | 50.0 +/-0.1 MB | 89.5 +/-6.3 MB | Go -96.9% | Go -94.4% | Java -79.0% |
-| **RAM Media (MB)** | 1389.7 +/-548.0 MB | 45.1 +/-2.3 MB | 67.4 +/-0.4 MB | Go -96.8% | Go -95.2% | Java -49.5% |
+| **RAM Pico (MB)**  | 1420.0 +/-419.9 MB | 78.8 +/-3.6 MB | 91.1 +/-6.3 MB | Go -94.4% | Go -93.6% | Java -15.6% |
+| **RAM Media (MB)** | 1281.8 +/-415.4 MB | 72.9 +/-3.6 MB | 68.2 +/-1.0 MB | Go -94.3% | Go -94.7% | Go -6.5% |
 
 ## Cenario: SPIKE (500 VUs, 1 min)
 
 | Metrica | Java 25 (VT) | Go 1.25 | Quarkus Native | Java vs Go | Java vs Quarkus | Go vs Quarkus |
 | :--- | ---: | ---: | ---: | :--- | :--- | :--- |
-| Latencia Media (ms) | 723.1 +/-2.9 | 353.1 +/-1.3 | 7069.8 +/-17.8 | Go -51.2% | Java -877.8% | Java -1902.2% |
-| Mediana p50 (ms) | 749.8 +/-3.5 | 353.3 +/-1.1 | 8586.1 +/-2.4 | Go -52.9% | Java -1045.2% | Java -2330.4% |
-| p95 (ms) | 917.4 +/-3.6 | 488.0 +/-1.3 | 8831.3 +/-18.8 | Go -46.8% | Java -862.6% | Java -1709.8% |
-| p99 (ms) | 970.4 +/-36.9 | 499.8 +/-1.2 | 8904.4 +/-23.1 | Go -48.5% | Java -817.6% | Java -1681.5% |
-| Total Requests | 21635.3 +/-80.9 | 39207.3 +/-112.6 | 2743.0 +/-6.1 | Go +81.2% | Java +87.3% | Java +93.0% |
-| Taxa de Erro (%) | 0.0 +/-0.0 | 0.1 +/-0.2 | 0.0 +/-0.0 | --- | Empate | Go -100.0% |
-| **RAM Pico (MB)**  | 1915.6 +/-13.6 MB | 78.6 +/-2.9 MB | 96.9 +/-8.6 MB | Go -95.9% | Go -94.9% | Java -23.3% |
-| **RAM Media (MB)** | 1895.6 +/-16.5 MB | 69.0 +/-3.1 MB | 77.3 +/-2.5 MB | Go -96.4% | Go -95.9% | Java -12.1% |
+| Latencia Media (ms) | 724.3 +/-1.7 | 353.4 +/-0.7 | 4645.7 +/-19.1 | Go -51.2% | Java -541.4% | Java -1214.6% |
+| Mediana p50 (ms) | 751.1 +/-0.6 | 353.4 +/-1.1 | 5007.6 +/-1.9 | Go -52.9% | Java -566.7% | Java -1316.9% |
+| p95 (ms) | 918.8 +/-3.9 | 488.3 +/-1.2 | 5439.4 +/-1.9 | Go -46.9% | Java -492.0% | Java -1014.1% |
+| p99 (ms) | 997.0 +/-80.2 | 500.4 +/-1.1 | 5484.4 +/-1.7 | Go -49.8% | Java -450.1% | Java -996.1% |
+| Total Requests | 21595.7 +/-40.3 | 39182.3 +/-62.6 | 3966.3 +/-10.3 | Go +81.4% | Java +81.6% | Java +89.9% |
+| Taxa de Erro (%) | 0.0 +/-0.0 | 0.2 +/-0.2 | 38.3 +/-1.0 | --- | --- | Java -23831.6% |
+| **RAM Pico (MB)**  | 1937.7 +/-4.1 MB | 108.0 +/-1.6 MB | 250.4 +/-29.8 MB | Go -94.4% | Go -87.1% | Java -131.8% |
+| **RAM Media (MB)** | 1874.9 +/-100.0 MB | 98.7 +/-2.8 MB | 163.6 +/-3.7 MB | Go -94.7% | Go -91.3% | Java -65.8% |
 
