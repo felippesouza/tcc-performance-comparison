@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # TCC — Script de Benchmark Automatizado
-# Java 25 Virtual Threads vs Go 1.25 Goroutines
+# Java 25 Virtual Threads vs Go 1.25 Goroutines vs Quarkus Native
 #
 # Uso:
 #   ./scripts/benchmarks/run_benchmarks.sh
@@ -18,6 +18,7 @@ set -euo pipefail
 # ── Configuração ──────────────────────────────────────────────
 JAVA_URL="${JAVA_URL:-http://localhost:8081/payments}"
 GO_URL="${GO_URL:-http://localhost:8082/payments}"
+QUARKUS_URL="${QUARKUS_URL:-http://localhost:8083/payments}"
 REDIS_CONTAINER="${REDIS_CONTAINER:-tcc-redis}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 K6_SCRIPT="$SCRIPT_DIR/stress_test.js"
@@ -70,8 +71,9 @@ run_scenario() {
   # Mapeia backend para nome do container Docker
   local container_name
   case "$backend" in
-    java) container_name="tcc-backend-java" ;;
-    go)   container_name="tcc-backend-go"   ;;
+    java)    container_name="tcc-backend-java"    ;;
+    go)      container_name="tcc-backend-go"      ;;
+    quarkus) container_name="tcc-backend-quarkus" ;;
     *)    container_name="tcc-backend-$backend" ;;
   esac
 
@@ -109,7 +111,7 @@ else
   SCENARIOS=("$SCENARIO_FILTER")
 fi
 
-BACKENDS=("java:$JAVA_URL" "go:$GO_URL")
+BACKENDS=("java:$JAVA_URL" "go:$GO_URL" "quarkus:$QUARKUS_URL")
 
 # ── Execução principal ────────────────────────────────────────
 total_runs=$(( ${#SCENARIOS[@]} * ${#BACKENDS[@]} * ROUNDS ))

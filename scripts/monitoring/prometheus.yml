@@ -15,6 +15,12 @@ scrape_configs:
       - targets: ['backend-go:8082']
     metrics_path: /metrics
 
+  # Backend Quarkus Native — GraalVM (Quarkus Micrometer)
+  - job_name: 'backend-quarkus'
+    static_configs:
+      - targets: ['backend-quarkus:8083']
+    metrics_path: /actuator/prometheus
+
   # Auto-monitoramento do Prometheus
   - job_name: 'prometheus'
     static_configs:
