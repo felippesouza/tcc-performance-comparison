@@ -15,7 +15,7 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
- * Loga a configuração do pool de conexões na inicialização.
+ * Loga a configuração de pools e threads na inicialização.
  *
  * Espelha o log do backend Go:
  *   slog.Info("Pool de conexões configurado", "max_conns", maxConns)
@@ -34,8 +34,16 @@ public class DatabaseStartupLog {
     @ConfigProperty(name = "quarkus.datasource.jdbc.acquisition-timeout", defaultValue = "5S")
     String acquisitionTimeout;
 
+    @ConfigProperty(name = "quarkus.thread-pool.max-threads", defaultValue = "600")
+    int maxThreads;
+
+    @ConfigProperty(name = "quarkus.redis.max-pool-size", defaultValue = "200")
+    int redisMaxPoolSize;
+
     void onStart(@Observes StartupEvent ev) {
         LOG.infof("Pool de conexões configurado — max=%d, min=%d, acquisition-timeout=%s",
             maxPoolSize, minPoolSize, acquisitionTimeout);
+        LOG.infof("Thread pool configurado — max-threads=%d", maxThreads);
+        LOG.infof("Redis pool configurado — max-pool-size=%d", redisMaxPoolSize);
     }
 }

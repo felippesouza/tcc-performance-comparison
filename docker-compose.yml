@@ -99,6 +99,8 @@ services:
       - REDIS_HOST=redis-cache
       - EXTERNAL_API_URL=http://mock-api:8080
       - AGROAL_MAX_POOL_SIZE=${AGROAL_MAX_POOL_SIZE:-200}
+      - REDIS_MAX_POOL_SIZE=${REDIS_MAX_POOL_SIZE:-200}
+      - QUARKUS_MAX_THREADS=${QUARKUS_MAX_THREADS:-600}
     depends_on:
       postgres-db:
         condition: service_healthy
