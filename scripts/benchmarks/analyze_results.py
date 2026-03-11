@@ -166,7 +166,7 @@ def load_results(results_dir: str):
         print(f"Nenhum arquivo JSON encontrado em: {results_dir}")
         sys.exit(1)
 
-    print(f"\nAnalisando {len(files)} arquivos em: {results_dir}\n")
+    print(f"\nAnalisando {len(files)} arquivos em: {results_dir}\n", file=sys.stderr)
 
     data = defaultdict(lambda: defaultdict(list))
     mem_missing = 0
@@ -314,8 +314,8 @@ def print_markdown_report(data, results_dir):
 
         print(f"## Cenario: {scenario.upper()} ({vu_map.get(scenario, '')})\n")
         if has_quarkus:
-            print("| Metrica | Java 25 (VT) | Go 1.25 | Quarkus Native | Java vs Go | Java vs Quarkus |")
-            print("| :--- | ---: | ---: | ---: | :--- | :--- |")
+            print("| Metrica | Java 25 (VT) | Go 1.25 | Quarkus Native | Java vs Go | Java vs Quarkus | Go vs Quarkus |")
+            print("| :--- | ---: | ---: | ---: | :--- | :--- | :--- |")
         else:
             print("| Metrica | Java 25 (VT) | Go 1.25 | Delta |")
             print("| :--- | ---: | ---: | :--- |")
@@ -336,11 +336,12 @@ def print_markdown_report(data, results_dir):
 
             if has_quarkus:
                 if key == "error_rate" and mean(jv) == 0 and mean(gv) == 0 and mean(qv) == 0:
-                    print(f"| {label} | 0.00% | 0.00% | 0.00% | Empate | Empate |")
+                    print(f"| {label} | 0.00% | 0.00% | 0.00% | Empate | Empate | Empate |")
                     continue
                 djg = delta_str(jv, gv, higher_is_better=higher_better)
                 djq = delta_str(jv, qv, higher_is_better=higher_better)
-                print(f"| {label} | {fmt_val(jv)} | {fmt_val(gv)} | {fmt_val(qv)} | {djg} | {djq} |")
+                dgq = delta_str(gv, qv, higher_is_better=higher_better)
+                print(f"| {label} | {fmt_val(jv)} | {fmt_val(gv)} | {fmt_val(qv)} | {djg} | {djq} | {dgq} |")
             else:
                 if key == "error_rate" and mean(jv) == 0 and mean(gv) == 0:
                     print(f"| {label} | 0.00% | 0.00% | Empate |")
@@ -366,10 +367,12 @@ def print_markdown_report(data, results_dir):
             if has_quarkus:
                 djgp = delta_str(j_peaks, g_peaks, higher_is_better=False)
                 djqp = delta_str(j_peaks, q_peaks, higher_is_better=False)
+                dgqp = delta_str(g_peaks, q_peaks, higher_is_better=False)
                 djga = delta_str(j_avgs,  g_avgs,  higher_is_better=False)
                 djqa = delta_str(j_avgs,  q_avgs,  higher_is_better=False)
-                print(f"| **RAM Pico (MB)**  | {jp} | {gp} | {qp} | {djgp} | {djqp} |")
-                print(f"| **RAM Media (MB)** | {ja} | {ga} | {qa} | {djga} | {djqa} |")
+                dgqa = delta_str(g_avgs,  q_avgs,  higher_is_better=False)
+                print(f"| **RAM Pico (MB)**  | {jp} | {gp} | {qp} | {djgp} | {djqp} | {dgqp} |")
+                print(f"| **RAM Media (MB)** | {ja} | {ga} | {qa} | {djga} | {djqa} | {dgqa} |")
             else:
                 dp = delta_str(j_peaks, g_peaks, higher_is_better=False)
                 da = delta_str(j_avgs,  g_avgs,  higher_is_better=False)
@@ -377,7 +380,7 @@ def print_markdown_report(data, results_dir):
                 print(f"| **RAM Media (MB)** | {ja} | {ga} | {da} |")
         else:
             if has_quarkus:
-                print(f"| **RAM Pico (MB)**  | N/A | N/A | N/A | sem dados .mem | sem dados .mem |")
+                print(f"| **RAM Pico (MB)**  | N/A | N/A | N/A | sem dados .mem | sem dados .mem | sem dados .mem |")
             else:
                 print(f"| **RAM Pico (MB)**  | N/A | N/A | sem dados .mem |")
 
