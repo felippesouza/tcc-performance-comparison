@@ -1,22 +1,36 @@
 {
-  "title": "TCC — Java 25 Virtual Threads vs Go 1.25 Goroutines",
+  "title": "TCC — Java 25 VT vs Go 1.25 vs Quarkus Native",
   "uid": "tcc-comparison",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
   "time": { "from": "now-10m", "to": "now" },
   "panels": [
     {
       "id": 1,
       "title": "Throughput — Requisições por Segundo",
-      "description": "Taxa de requests processados. Métrica central: qual modelo sustenta mais RPS sob carga igual.",
+      "description": "Taxa de requests processados por cada modelo de concorrência. Sob carga equivalente com pool proporcional, Java VT e Go devem empatar. Quarkus Native degrada sob carga alta por não ter modelo de threads leves.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Virtual Threads" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Goroutines" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -28,6 +42,11 @@
           "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-go\"}[30s]))",
           "legendFormat": "🐹 Go 1.25 — Goroutines",
           "refId": "B"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-quarkus\"}[30s]))",
+          "legendFormat": "⚡ Quarkus Native",
+          "refId": "C"
         }
       ],
       "options": {
@@ -37,14 +56,28 @@
     {
       "id": 2,
       "title": "Latência p95 — Tempo de Resposta (95% das requisições)",
-      "description": "Percentil 95 da latência. Loom e Goroutines competem diretamente aqui em workloads I/O bound.",
+      "description": "Percentil 95 da latência. Java VT e Go devem empatar. Quarkus Native degrada sob carga alta por saturação de OS threads aguardando I/O.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 p95" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 p95" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native p95" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -56,20 +89,39 @@
           "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"backend-go\"}[30s])) by (le))",
           "legendFormat": "🐹 Go 1.25 p95",
           "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{job=\"backend-quarkus\"}[30s])) by (le))",
+          "legendFormat": "⚡ Quarkus Native p95",
+          "refId": "C"
         }
       ]
     },
     {
       "id": 3,
       "title": "Latência p99 — Cauda Longa (Piores 1%)",
-      "description": "Percentil 99. Revela comportamento sob pressão extrema — onde Virtual Thread pinning aparece como spikes.",
+      "description": "Percentil 99. Revela comportamento sob pressão extrema. Quarkus sob carga alta mostrará cauda muito longa por contenção de OS threads.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 p99" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 p99" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native p99" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -81,13 +133,18 @@
           "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"backend-go\"}[30s])) by (le))",
           "legendFormat": "🐹 Go 1.25 p99",
           "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job=\"backend-quarkus\"}[30s])) by (le))",
+          "legendFormat": "⚡ Quarkus Native p99",
+          "refId": "C"
         }
       ]
     },
     {
       "id": 4,
       "title": "Taxa de Erros (5xx)",
-      "description": "Percentual de erros. Ambos devem ficar abaixo de 1% para o TCC ser válido (threshold do k6).",
+      "description": "Percentual de erros. Todos devem ficar abaixo de 1% para o TCC ser válido (threshold do k6).",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
       "fieldConfig": {
@@ -101,7 +158,21 @@
               { "color": "red", "value": 0.01 }
             ]
           }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 Erros" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 Erros" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native Erros" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -113,20 +184,43 @@
           "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-go\",outcome=\"SERVER_ERROR\"}[30s])) / sum(rate(http_server_requests_seconds_count{job=\"backend-go\"}[30s]))",
           "legendFormat": "🐹 Go 1.25 Erros",
           "refId": "B"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{job=\"backend-quarkus\",outcome=\"SERVER_ERROR\"}[30s])) / sum(rate(http_server_requests_seconds_count{job=\"backend-quarkus\"}[30s]))",
+          "legendFormat": "⚡ Quarkus Native Erros",
+          "refId": "C"
         }
       ]
     },
     {
       "id": 5,
-      "title": "Modelo de Concorrência — Virtual Threads vs Goroutines Ativas",
-      "description": "Unidades de concorrência ativas por runtime. Java mostra threads totais (Virtual + Platform) vs Go mostra goroutines. Virtual Threads permitem escalar para centenas de threads com overhead mínimo, equivalente às goroutines do Go.",
+      "title": "Modelo de Concorrência — Threads/Goroutines Ativas",
+      "description": "Unidades de concorrência ativas por runtime. Java VT: threads totais (Virtual + Platform). Go: goroutines (M:N multiplexadas em GOMAXPROCS OS threads). Quarkus Native: OS threads diretas (sem abstração — satura sob carga alta).",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Threads Totais (VT + Platform)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Threads Executando" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FFC966" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Goroutines Ativas" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — OS Threads" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -143,20 +237,39 @@
           "expr": "go_goroutines{job=\"backend-go\"}",
           "legendFormat": "🐹 Go 1.25 — Goroutines Ativas",
           "refId": "C"
+        },
+        {
+          "expr": "jvm_threads_live_threads{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — OS Threads",
+          "refId": "D"
         }
       ]
     },
     {
       "id": 6,
-      "title": "Footprint de Memória (Heap)",
-      "description": "Consumo de memória heap. Virtual Threads são mais pesadas por thread (stack JVM) vs Goroutines (stack dinâmica mínima de 2-8KB). Diferença esperada: Java consome mais heap por VT.",
+      "title": "Footprint de Memória (Heap / RSS)",
+      "description": "Heap JVM para Java, heap Go para Go, RSS do processo para Quarkus Native (sem JVM heap). Quarkus Native é a prova de que o custo de RAM é da JVM, não da linguagem Java.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "decbytes",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Heap Usado" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Heap In-Use" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — RSS (sem JVM)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -168,13 +281,18 @@
           "expr": "go_memstats_heap_inuse_bytes{job=\"backend-go\"}",
           "legendFormat": "🐹 Go 1.25 — Heap In-Use",
           "refId": "B"
+        },
+        {
+          "expr": "process_memory_rss_bytes{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — RSS (sem JVM)",
+          "refId": "C"
         }
       ]
     },
     {
       "id": 7,
       "title": "Uso de CPU",
-      "description": "CPU consumida. Em I/O bound puro ambos devem ficar baixos — CPU alta indica contenção de threads ou GC excessivo.",
+      "description": "CPU consumida por cada backend. Em I/O bound puro todos devem ficar baixos. CPU alta indica contenção de threads ou GC excessivo.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
       "fieldConfig": {
@@ -183,7 +301,21 @@
           "min": 0,
           "max": 1,
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — CPU" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — CPU" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — CPU" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -195,20 +327,31 @@
           "expr": "rate(process_cpu_seconds_total{job=\"backend-go\"}[30s])",
           "legendFormat": "🐹 Go 1.25 — CPU",
           "refId": "B"
+        },
+        {
+          "expr": "process_cpu_usage{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — CPU",
+          "refId": "C"
         }
       ]
     },
     {
       "id": 8,
       "title": "OS Threads do Runtime Go (go_threads)",
-      "description": "Threads de SO criadas pelo runtime Go. Deve permanecer próximo de GOMAXPROCS (nº de vCPUs) mesmo com centenas de goroutines — comprova que goroutines são multiplexadas, não mapeadas 1:1 em OS threads.",
+      "description": "Threads de SO criadas pelo runtime Go. Deve permanecer próximo de GOMAXPROCS (nº de vCPUs) mesmo com centenas de goroutines — comprova que goroutines são multiplexadas M:N, não mapeadas 1:1 em OS threads.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 32, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go — OS Threads Totais" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -221,14 +364,24 @@
     {
       "id": 9,
       "title": "GC — Pausas de Garbage Collection (Java ZGC vs Go GC)",
-      "description": "Duração das pausas de GC. ZGC do Java 25 deve ser sub-milissegundo. Go GC concurrent também deve ser mínimo. Pausas altas aqui explicariam spikes na latência p99.",
+      "description": "Duração das pausas de GC. ZGC do Java 25 deve ser sub-milissegundo. Go GC concurrent também deve ser mínimo. Quarkus Native usa GC nativo (Epsilon/Serial por padrão no Mandrel).",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 32, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — GC Pausa Média (ZGC)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — GC Pausa Média" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -245,15 +398,37 @@
     },
     {
       "id": 10,
-      "title": "Pool de Conexões DB — Utilização Ativa",
-      "description": "Conexões PostgreSQL em uso no momento. ESSENCIAL para o experimento de spike: com 500 VUs e pool=200, 60% das threads ficam em espera — este painel comprova a contenção. Com pool=500 o gráfico deveria equalizar throughput entre Java e Go.",
+      "title": "Pool de Conexões DB — Utilização Ativa (HikariCP / Agroal)",
+      "description": "Conexões PostgreSQL em uso. HikariCP (Java) e Agroal (Quarkus) expõem métricas de pool. Essencial para o experimento de spike: com 500 VUs e pool=200, 60% das threads ficam em espera — comprova a hipótese de contenção.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 40, "w": 24, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — HikariCP Conexões Ativas" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — HikariCP Threads em Espera" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FF9800" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — HikariCP Pool Máximo" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FFC107" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — Agroal Conexões Ativas" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — Agroal Conexões Criadas" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#BB66EE" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -270,6 +445,16 @@
           "expr": "hikaricp_connections_max{job=\"backend-java\"}",
           "legendFormat": "☕ Java 25 — HikariCP Pool Máximo",
           "refId": "C"
+        },
+        {
+          "expr": "agroal_connections_active_count{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — Agroal Conexões Ativas",
+          "refId": "D"
+        },
+        {
+          "expr": "agroal_connections_created_count{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — Agroal Conexões Criadas",
+          "refId": "E"
         }
       ],
       "options": {
@@ -279,14 +464,28 @@
     {
       "id": 11,
       "title": "Latência Mediana (p50) — Linha de Base de Comparação",
-      "description": "Mediana da latência — menos sensível a outliers que a média. Sob carga equivalente (baseline/stress), ambos devem convergir para ~350ms (latência do mock externo). Divergência indica saturação do modelo de concorrência.",
+      "description": "Mediana da latência — menos sensível a outliers. Sob carga equivalente (baseline/stress com pool proporcional), Java VT e Go devem convergir para ~350ms (latência do mock externo). Quarkus diverge sob carga por saturação de threads.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 48, "w": 24, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Mediana (p50)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Mediana (p50)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — Mediana (p50)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -298,6 +497,11 @@
           "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{job=\"backend-go\"}[30s])) by (le))",
           "legendFormat": "🐹 Go 1.25 — Mediana (p50)",
           "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{job=\"backend-quarkus\"}[30s])) by (le))",
+          "legendFormat": "⚡ Quarkus Native — Mediana (p50)",
+          "refId": "C"
         }
       ],
       "options": {
@@ -307,14 +511,28 @@
     {
       "id": 12,
       "title": "RAM Total do Processo (RSS) — Footprint Real",
-      "description": "Memória RAM total consumida pelo processo (Resident Set Size). Esta é a métrica honesta para comparar footprint: Java inclui JVM overhead, metaspace, code cache e stacks de threads além do heap. Go inclui apenas o binário estático + goroutine stacks. Diferença esperada: Java consome 3-5x mais RAM que Go.",
+      "description": "Memória RAM total do processo. Java inclui JVM, metaspace, code cache e stacks. Go e Quarkus Native são binários estáticos — sem JVM overhead. Esta é a evidência central do TCC: o custo de RAM é da JVM, não da linguagem Java.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 56, "w": 24, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "decbytes",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — RAM Total (RSS)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — RAM Total (RSS)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — RAM Total (RSS)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -326,6 +544,11 @@
           "expr": "process_resident_memory_bytes{job=\"backend-go\"}",
           "legendFormat": "🐹 Go 1.25 — RAM Total (RSS)",
           "refId": "B"
+        },
+        {
+          "expr": "process_memory_rss_bytes{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — RAM Total (RSS)",
+          "refId": "C"
         }
       ],
       "options": {
@@ -335,14 +558,28 @@
     {
       "id": 13,
       "title": "JVM Non-Heap — Metaspace e Code Cache (Overhead da JVM)",
-      "description": "Memória fora do heap: Metaspace (classes carregadas pelo classloader) e Code Cache (JIT compiler). Este é o 'imposto invisível' da JVM — ausente no Go. Sob carga alta, o JIT compila mais código quente e o Code Cache cresce. Metaspace cresce com o número de classes carregadas pelo Spring Framework.",
+      "description": "Memória fora do heap JVM: Metaspace (classes Spring) e Code Cache (JIT). Este é o 'imposto invisível' da JVM — ausente no Go e no Quarkus Native. Metaspace cresce com classes carregadas pelo Spring Framework.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 64, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "decbytes",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Non-Heap Total" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Metaspace" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FF9800" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Code Cache (JIT)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FFC107" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -368,14 +605,24 @@
     {
       "id": 14,
       "title": "HikariCP — Tempo de Espera por Conexão DB (Pool Contention)",
-      "description": "Tempo médio que uma Virtual Thread aguarda para obter uma conexão do pool HikariCP. No spike (500 VUs, pool=200), 300 threads ficam enfileiradas — este painel mostra o tempo médio de espera na fila. É a prova quantitativa da hipótese: se Go supera Java no spike, este gráfico mostrará tempos de espera crescentes no Java. Com pool=500 (docker-compose.pool-experiment.yml), a espera deve cair para zero.",
+      "description": "Tempo médio que uma Virtual Thread aguarda para obter uma conexão do pool HikariCP. No spike (500 VUs, pool=200), 300 threads ficam enfileiradas. Com pool=500, a espera deve cair para zero.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 64, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Tempo Médio de Acquire" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Acquire p95" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#FF9800" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -396,14 +643,24 @@
     {
       "id": 15,
       "title": "Stack Memory — Goroutines vs Thread Stacks JVM",
-      "description": "Memória de stack em uso. Go: stack dinâmica por goroutine inicia com ~2KB e cresce conforme necessário (go_memstats_stack_inuse_bytes). Java: stacks de OS threads (1MB default por thread). Com 500 VUs concorrentes: Go usa ~1MB total de stack; Java usa ~500MB apenas em stacks — evidência direta da vantagem de memória das goroutines.",
+      "description": "Memória de stack em uso. Go: stack dinâmica por goroutine (~2KB inicial). Java: stacks de OS threads (1MB por thread). Com 500 VUs: Go usa ~1MB total de stack; Java usa ~500MB apenas em stacks.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 72, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "decbytes",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Stack Total (goroutines)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Stack Reservado (sistema)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#66CCEE" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -424,14 +681,24 @@
     {
       "id": 16,
       "title": "GC — Taxa de Alocação de Memória (Pressão do GC)",
-      "description": "Bytes alocados por segundo por cada runtime. Taxa alta = mais pressão sobre o GC. No spike, se Java aloca muito mais que Go por requisição, o ZGC será acionado mais frequentemente — o que correlaciona com os spikes de latência p99 do painel 3.",
+      "description": "Bytes alocados por segundo. Taxa alta = mais pressão sobre o GC. No spike, Java aloca muito mais que Go por requisição, acionando ZGC com mais frequência.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 72, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "Bps",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Taxa de Alocação (bytes/s)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Taxa de Alocação (bytes/s)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -452,14 +719,28 @@
     {
       "id": 17,
       "title": "Requests em-flight — Concorrência Real em Processamento",
-      "description": "Número de requisições sendo processadas simultaneamente (Lei de Little: N = λ × W). Java usa Virtual Threads para processar todas em paralelo sem bloqueio de OS threads. Go usa goroutines. Ambos devem escalar linearmente com carga — colapso neste gráfico indica saturação do modelo de concorrência ou do pool de conexões.",
+      "description": "Requisições sendo processadas simultaneamente (gauge direto). Go e Quarkus usam gauge http_requests_in_flight implementado manualmente. Java usa estimativa pela Lei de Little (N = λ × W). Colapso indica saturação do modelo de concorrência.",
       "type": "timeseries",
       "gridPos": { "x": 0, "y": 80, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — Requests in-flight (estimado, Lei de Little)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Requests in-flight (gauge direto)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — Requests in-flight (gauge direto)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -471,6 +752,11 @@
           "expr": "http_requests_in_flight{job=\"backend-go\"}",
           "legendFormat": "🐹 Go 1.25 — Requests in-flight (gauge direto)",
           "refId": "B"
+        },
+        {
+          "expr": "http_requests_in_flight{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — Requests in-flight (gauge direto)",
+          "refId": "C"
         }
       ],
       "options": {
@@ -479,15 +765,29 @@
     },
     {
       "id": 18,
-      "title": "Memória JVM Total (Heap + Non-Heap) vs Go RSS",
-      "description": "Visão consolidada: Java heap + non-heap vs Go RSS total. Esta comparação direta responde 'quanto custa rodar cada backend em RAM' — argumento direto para dimensionamento de instâncias GCP e custo operacional.",
+      "title": "Memória Total Consolidada — JVM vs RSS (Go e Quarkus)",
+      "description": "Visão comparativa final: Java heap+non-heap vs Go RSS total vs Quarkus Native RSS total. Responde diretamente: quanto custa rodar cada backend em RAM — argumento central para dimensionamento de instâncias e custo operacional.",
       "type": "timeseries",
       "gridPos": { "x": 12, "y": 80, "w": 12, "h": 8 },
       "fieldConfig": {
         "defaults": {
           "unit": "decbytes",
           "custom": { "lineWidth": 2, "fillOpacity": 10 }
-        }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "☕ Java 25 — JVM Total (Heap + Non-Heap)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#F5A623" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "🐹 Go 1.25 — Memória Total do Runtime" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#00ADD8" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "⚡ Quarkus Native — Memória Total (RSS)" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#9933CC" } }]
+          }
+        ]
       },
       "targets": [
         {
@@ -499,6 +799,11 @@
           "expr": "go_memstats_sys_bytes{job=\"backend-go\"}",
           "legendFormat": "🐹 Go 1.25 — Memória Total do Runtime",
           "refId": "B"
+        },
+        {
+          "expr": "process_memory_rss_bytes{job=\"backend-quarkus\"}",
+          "legendFormat": "⚡ Quarkus Native — Memória Total (RSS)",
+          "refId": "C"
         }
       ],
       "options": {
