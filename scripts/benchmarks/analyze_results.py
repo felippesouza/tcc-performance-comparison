@@ -248,12 +248,17 @@ def print_text_report(data):
         print(f"  CENARIO: {scenario.upper()} -- {vu_map.get(scenario, '')}")
         print(f"{'=' * 65}")
 
-        for backend in ["java", "go"]:
+        backend_labels = {
+            "java":    "Java 25 (VT)",
+            "go":      "Go 1.25 (Goroutines)",
+            "quarkus": "Quarkus Native",
+        }
+        for backend in ["java", "go", "quarkus"]:
             if backend not in data[scenario]:
                 continue
 
             rounds = data[scenario][backend]
-            label = "Java 25 (VT)" if backend == "java" else "Go 1.25 (Goroutines)"
+            label = backend_labels.get(backend, backend)
             print(f"\n  {label} -- {len(rounds)} rodada(s)")
             print(f"  {'-' * 55}")
             print(f"  {'Metrica':<28} {'Media':>10} {'  +/-Sigma':>10} {'CV%':>7}")
@@ -301,14 +306,20 @@ def print_markdown_report(data, results_dir):
         if scenario not in data:
             continue
 
-        java_rounds = data[scenario].get("java", [])
-        go_rounds   = data[scenario].get("go",   [])
+        java_rounds    = data[scenario].get("java",    [])
+        go_rounds      = data[scenario].get("go",      [])
+        quarkus_rounds = data[scenario].get("quarkus", [])
+
+        has_quarkus = len(quarkus_rounds) > 0
 
         print(f"## Cenario: {scenario.upper()} ({vu_map.get(scenario, '')})\n")
-        print("| Metrica | Java 25 (VT) | Go 1.25 | Delta |")
-        print("| :--- | ---: | ---: | :--- |")
+        if has_quarkus:
+            print("| Metrica | Java 25 (VT) | Go 1.25 | Quarkus Native | Java vs Go | Java vs Quarkus |")
+            print("| :--- | ---: | ---: | ---: | :--- | :--- |")
+        else:
+            print("| Metrica | Java 25 (VT) | Go 1.25 | Delta |")
+            print("| :--- | ---: | ---: | :--- |")
 
-        # Latencia e throughput
         rows = [
             ("avg_ms",         "Latencia Media (ms)",  False),
             ("p50_ms",         "Mediana p50 (ms)",     False),
@@ -321,30 +332,54 @@ def print_markdown_report(data, results_dir):
         for key, label, higher_better in rows:
             jv = [r[key] for r in java_rounds]
             gv = [r[key] for r in go_rounds]
-            # Suprime linha de erro quando ambos sao zero
-            if key == "error_rate" and mean(jv) == 0 and mean(gv) == 0:
-                print(f"| {label} | 0.00% | 0.00% | Empate |")
-                continue
-            d = delta_str(jv, gv, higher_is_better=higher_better)
-            print(f"| {label} | {fmt_val(jv)} | {fmt_val(gv)} | {d} |")
+            qv = [r[key] for r in quarkus_rounds]
+
+            if has_quarkus:
+                if key == "error_rate" and mean(jv) == 0 and mean(gv) == 0 and mean(qv) == 0:
+                    print(f"| {label} | 0.00% | 0.00% | 0.00% | Empate | Empate |")
+                    continue
+                djg = delta_str(jv, gv, higher_is_better=higher_better)
+                djq = delta_str(jv, qv, higher_is_better=higher_better)
+                print(f"| {label} | {fmt_val(jv)} | {fmt_val(gv)} | {fmt_val(qv)} | {djg} | {djq} |")
+            else:
+                if key == "error_rate" and mean(jv) == 0 and mean(gv) == 0:
+                    print(f"| {label} | 0.00% | 0.00% | Empate |")
+                    continue
+                d = delta_str(jv, gv, higher_is_better=higher_better)
+                print(f"| {label} | {fmt_val(jv)} | {fmt_val(gv)} | {d} |")
 
         # Memoria
-        j_peaks = [r["mem_peak_mb"] for r in java_rounds if r["mem_peak_mb"] > 0]
-        g_peaks = [r["mem_peak_mb"] for r in go_rounds   if r["mem_peak_mb"] > 0]
-        j_avgs  = [r["mem_avg_mb"]  for r in java_rounds if r["mem_avg_mb"]  > 0]
-        g_avgs  = [r["mem_avg_mb"]  for r in go_rounds   if r["mem_avg_mb"]  > 0]
+        j_peaks = [r["mem_peak_mb"] for r in java_rounds    if r["mem_peak_mb"] > 0]
+        g_peaks = [r["mem_peak_mb"] for r in go_rounds      if r["mem_peak_mb"] > 0]
+        q_peaks = [r["mem_peak_mb"] for r in quarkus_rounds if r["mem_peak_mb"] > 0]
+        j_avgs  = [r["mem_avg_mb"]  for r in java_rounds    if r["mem_avg_mb"]  > 0]
+        g_avgs  = [r["mem_avg_mb"]  for r in go_rounds      if r["mem_avg_mb"]  > 0]
+        q_avgs  = [r["mem_avg_mb"]  for r in quarkus_rounds if r["mem_avg_mb"]  > 0]
 
-        if j_peaks or g_peaks:
+        if j_peaks or g_peaks or q_peaks:
             jp = fmt_val(j_peaks, " MB") if j_peaks else "N/A"
             gp = fmt_val(g_peaks, " MB") if g_peaks else "N/A"
+            qp = fmt_val(q_peaks, " MB") if q_peaks else "N/A"
             ja = fmt_val(j_avgs,  " MB") if j_avgs  else "N/A"
             ga = fmt_val(g_avgs,  " MB") if g_avgs  else "N/A"
-            dp = delta_str(j_peaks, g_peaks, higher_is_better=False)
-            da = delta_str(j_avgs,  g_avgs,  higher_is_better=False)
-            print(f"| **RAM Pico (MB)**  | {jp} | {gp} | {dp} |")
-            print(f"| **RAM Media (MB)** | {ja} | {ga} | {da} |")
+            qa = fmt_val(q_avgs,  " MB") if q_avgs  else "N/A"
+            if has_quarkus:
+                djgp = delta_str(j_peaks, g_peaks, higher_is_better=False)
+                djqp = delta_str(j_peaks, q_peaks, higher_is_better=False)
+                djga = delta_str(j_avgs,  g_avgs,  higher_is_better=False)
+                djqa = delta_str(j_avgs,  q_avgs,  higher_is_better=False)
+                print(f"| **RAM Pico (MB)**  | {jp} | {gp} | {qp} | {djgp} | {djqp} |")
+                print(f"| **RAM Media (MB)** | {ja} | {ga} | {qa} | {djga} | {djqa} |")
+            else:
+                dp = delta_str(j_peaks, g_peaks, higher_is_better=False)
+                da = delta_str(j_avgs,  g_avgs,  higher_is_better=False)
+                print(f"| **RAM Pico (MB)**  | {jp} | {gp} | {dp} |")
+                print(f"| **RAM Media (MB)** | {ja} | {ga} | {da} |")
         else:
-            print(f"| **RAM Pico (MB)**  | N/A | N/A | sem dados .mem |")
+            if has_quarkus:
+                print(f"| **RAM Pico (MB)**  | N/A | N/A | N/A | sem dados .mem | sem dados .mem |")
+            else:
+                print(f"| **RAM Pico (MB)**  | N/A | N/A | sem dados .mem |")
 
         print()
 
