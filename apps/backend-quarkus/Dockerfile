@@ -1,3 +1,11 @@
+# ============================================================
+# TCC — Quarkus Native Backend
+# Runtime: GraalVM Mandrel (AOT, sem JVM em execução)
+# Nota científica: diferentemente de backend-java (Java 25 + Virtual Threads + ZGC),
+# o binário nativo não usa JVM — não há Virtual Threads, JIT, nem GC heap.
+# O footprint de RAM esperado é ~120-200 MB (vs ~1.2 GB do JVM backend).
+# ============================================================
+
 # -- Stage 1: Native build --------------------------------------------------
 FROM quay.io/quarkus/ubi-quarkus-mandrel-builder-image:jdk-21 AS builder
 

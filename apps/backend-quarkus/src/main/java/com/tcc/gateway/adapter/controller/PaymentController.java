@@ -24,11 +24,19 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponses;
+import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 import org.jboss.logging.Logger;
 
 @Path("/payments")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
+@Tag(name = "Payment Gateway", description = "Endpoints para processamento de pagamentos concorrentes")
 public class PaymentController {
 
     private static final Logger LOG = Logger.getLogger(PaymentController.class);
@@ -46,7 +54,26 @@ public class PaymentController {
     ObjectMapper objectMapper;
 
     @POST
+    @Operation(
+        summary = "Processar um novo pagamento",
+        description = "Recebe os dados do cartão, valida a transação e consulta a adquirente externa. " +
+                      "Suporta idempotência via header X-Idempotency-Key para evitar cobranças duplicadas em retries."
+    )
+    @APIResponses({
+        @APIResponse(
+            responseCode = "201",
+            description = "Pagamento processado com sucesso",
+            content = @Content(schema = @Schema(implementation = PaymentResponse.class))
+        ),
+        @APIResponse(responseCode = "400", description = "Dados da requisição inválidos ou falha de negócio"),
+        @APIResponse(responseCode = "500", description = "Erro interno no servidor ou timeout da adquirente")
+    })
     public Response create(
+        @Parameter(
+            description = "Chave única para idempotência. Requisições repetidas com a mesma chave retornam " +
+                          "o resultado original sem reprocessar o pagamento.",
+            example = "req-uuid-1234"
+        )
         @HeaderParam("X-Idempotency-Key") String idempotencyKey,
         @Valid PaymentRequest request
     ) throws Exception {
