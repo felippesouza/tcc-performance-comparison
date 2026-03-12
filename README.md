@@ -35,56 +35,66 @@ Com os três, o experimento prova empiricamente que:
 
 ## Resultados (Apple M4, Colima ARM64, pool=200, 3 rodadas)
 
+> **Nota metodológica:** pool=200 conexões para todos os backends é uma configuração realista de produção. Em contraste, o experimento de controle com pool=500 (arquivado em `POOL_EXPERIMENT_REPORT.md`) confirma que Java e Go empatam quando o pool não é gargalo — validando o modelo de Virtual Threads de forma isolada.
+
 ### Baseline — 20 VUs, 2 minutos
 
-| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native |
-|---|---|---|---|
-| Latência média | 359ms | 353ms | 358ms |
-| Total requests | 2.912 | 2.953 | 2.919 |
-| RAM pico | 753 MB | 61 MB | 56 MB |
+| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native | RPS |
+|---|---|---|---|---|
+| Latência média | 358ms | 354ms | 357ms | ~24 req/s |
+| Total requests | 2.918 | 2.945 | 2.929 | — |
+| RAM pico | 789 MB | 32 MB | 56 MB | — |
 
-**Todos empatam em performance.** Com carga leve, o gargalo é o I/O externo (200–500ms) — o modelo de threading não faz diferença. A única variável relevante é RAM: Java consome 13× mais que Go/Quarkus.
+**Todos empatam.** Com carga leve o gargalo é o I/O externo (200–500ms) — o modelo de concorrência não faz diferença. Única variável relevante: RAM — Java 25× mais que Go, JVM é o custo.
 
 ---
 
 ### Stress — 200 VUs, ~2 minutos
 
-| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native |
-|---|---|---|---|
-| Latência média | 354ms | 352ms | 2.720ms |
-| Total requests | 37.505 | 37.691 | 6.105 |
-| Taxa de erro | 0% | 0% | 0% |
-| RAM pico | 1.420 MB | 79 MB | 91 MB |
+| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native | RPS |
+|---|---|---|---|---|
+| Latência média | 353ms | 352ms | 354ms | ~342 req/s |
+| Total requests | 37.554 | 37.702 | 37.545 | — |
+| Taxa de erro | 0% | 0% | 0% | — |
+| RAM pico | 1.379 MB | 50 MB | 148 MB | — |
 
-**Java e Go empatam completamente.** Virtual Threads e goroutines resolvem o I/O-bound da mesma forma. Quarkus com OS threads colapsa: 83% menos throughput, latência 7× maior. RAM: Go e Quarkus no mesmo tier (79 MB vs 91 MB) — Java 18× mais pesado.
+**Todos os três empatam completamente** — incluindo Quarkus Native com OS threads, desde que os pools (thread, Redis, HTTP client) estejam corretamente dimensionados. O gargalo é o I/O externo, não o modelo de threading.
 
 ---
 
 ### Spike — 500 VUs, 1 minuto
 
-| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native |
-|---|---|---|---|
-| Latência média | 724ms | 353ms | 4.646ms |
-| p50 | 751ms | 353ms | 5.008ms |
-| p95 | 919ms | 488ms | 5.439ms |
-| Total requests | 21.596 | 39.182 | 3.966 |
-| Taxa de erro | 0% | 0.2% | 38.3% |
-| RAM pico | 1.938 MB | 108 MB | 250 MB |
+| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native | RPS |
+|---|---|---|---|---|
+| Latência média | 724ms | 354ms | 360ms | — |
+| p95 | 918ms | 488ms | 495ms | — |
+| Total requests | 21.610 | 39.176 | 38.607 | — |
+| RPS | 362 | **655** | **646** | — |
+| Taxa de erro | 0% | 0.2% | 0.5% | — |
+| RAM pico | 1.935 MB | 78 MB | **464 MB** | — |
 
-**Go domina.** Goroutines absorvem 500 VUs sem pressão: 39k requests, 353ms estável. Java com Virtual Threads sente contention (pool HikariCP, scheduler JVM) mas permanece funcional. Quarkus com OS threads entra em colapso parcial: 38% de erros, 250 MB de RAM (600 stacks de OS thread).
+**Go e Quarkus empatam em throughput; Java degrada.** A causa não é o modelo de Virtual Threads — é o HikariCP: usa `synchronized` internamente, o que **pina Virtual Threads ao carrier OS thread** sob contention de pool. Com 500 VUs e 200 conexões disponíveis, 300 VUs ficam em fila e os carriers esgotam. Go (`pgxpool`) e Quarkus (`Agroal`) não têm esse problema.
+
+RAM no spike revela o custo real de OS threads: Quarkus com 600 threads simultâneas usa 464 MB (600 × ~512 KB de stack), Go usa 78 MB (goroutines ~2 KB cada) — **mesma performance, 6× mais RAM**.
 
 ---
 
 ## Conclusões Científicas
 
 **1. O custo de RAM é da JVM, não do Java**
-Quarkus Native (Java AOT) usa 56–250 MB — equiparável ao Go (61–108 MB). Java JVM usa 753–1938 MB. A linguagem não é o problema; o runtime é.
+Quarkus Native (Java AOT) usa 56–464 MB — mesma ordem que Go (32–78 MB). Java JVM usa 789–1.935 MB. A linguagem não é o problema; o runtime é.
 
-**2. O modelo de concorrência determina performance sob carga**
-Go e Java VT têm performance equivalente até carga extrema. OS threads (Quarkus) colapsam porque cada thread bloqueada esperando I/O é uma thread perdida. M:N scheduling (goroutines/VT) desmultiplexa o I/O sem desperdiçar threads.
+**2. OS threads são competitivas quando pools estão corretos**
+Quarkus Native empata com Go e Java no stress (200 VUs). O colapso anterior era configuração incorreta (thread pool, Redis pool e HTTP client pool todos subdimensionados por padrão), não limitação arquitetural.
 
-**3. Programação reativa perdeu sua principal justificativa**
-Reactive programming (Mutiny, Project Reactor) surgiu para compensar o custo das OS threads. Com Virtual Threads e goroutines, essa complexidade não se paga: o código permanece imperativo, síncrono e debugável com a mesma eficiência de I/O.
+**3. O diferencial de OS threads é RAM, não throughput**
+Go e Quarkus entregam ~650 req/s no spike. Go usa 78 MB, Quarkus usa 464 MB — 6× mais RAM pelo mesmo resultado. Esse é o custo real do modelo 1:1 de threading.
+
+**4. Virtual Threads têm limitação com HikariCP sob contention**
+Java degrada no spike (pool=200) porque HikariCP usa `synchronized`, pinando VTs a carriers. Isso é uma limitação de integração (não do modelo VT), corrigível com pool=500 ou migrando para driver JDBC não-pinante.
+
+**5. Programação reativa perdeu sua principal justificativa**
+Reactive programming surgiu para compensar OS threads bloqueantes. Com goroutines e Virtual Threads, a complexidade não se paga — código imperativo entrega a mesma eficiência com muito menos complexidade.
 
 ---
 
