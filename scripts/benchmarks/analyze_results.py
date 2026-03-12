@@ -209,24 +209,22 @@ def load_results(results_dir: str):
 
 # ── Formatação ────────────────────────────────────────────────────────────────
 
-def delta_str(java_vals, go_vals, higher_is_better=False):
-    """Calcula delta percentual entre medias Java e Go."""
-    if not java_vals or not go_vals:
+def delta_str(a_vals, b_vals, higher_is_better=False, a_label="Java", b_label="Go"):
+    """Calcula delta percentual entre medias de dois backends (a=baseline, b=comparado)."""
+    if not a_vals or not b_vals:
         return "---"
-    j, g = mean(java_vals), mean(go_vals)
-    if j == 0 and g == 0:
+    a, b = mean(a_vals), mean(b_vals)
+    if a == 0 and b == 0:
         return "Empate"
-    if j == 0:
+    if a == 0:
         return "---"
-    pct = (g - j) / j * 100
+    pct = (b - a) / a * 100
     if abs(pct) < 2.0:
         return "Empate"
     if higher_is_better:
-        # Para throughput: Go mais alto = Go ganha
-        return f"Go +{pct:.1f}%" if pct > 0 else f"Java +{abs(pct):.1f}%"
+        return f"{b_label} +{pct:.1f}%" if pct > 0 else f"{a_label} +{abs(pct):.1f}%"
     else:
-        # Para latencia/memoria: Go mais baixo = Go ganha
-        return f"Go -{abs(pct):.1f}%" if pct < 0 else f"Java -{abs(pct):.1f}%"
+        return f"{b_label} -{abs(pct):.1f}%" if pct < 0 else f"{a_label} -{abs(pct):.1f}%"
 
 
 def fmt_val(vals, unit=""):
@@ -338,15 +336,15 @@ def print_markdown_report(data, results_dir):
                 if key == "error_rate" and mean(jv) == 0 and mean(gv) == 0 and mean(qv) == 0:
                     print(f"| {label} | 0.00% | 0.00% | 0.00% | Empate | Empate | Empate |")
                     continue
-                djg = delta_str(jv, gv, higher_is_better=higher_better)
-                djq = delta_str(jv, qv, higher_is_better=higher_better)
-                dgq = delta_str(gv, qv, higher_is_better=higher_better)
+                djg = delta_str(jv, gv, higher_is_better=higher_better, a_label="Java", b_label="Go")
+                djq = delta_str(jv, qv, higher_is_better=higher_better, a_label="Java", b_label="Quarkus")
+                dgq = delta_str(gv, qv, higher_is_better=higher_better, a_label="Go",   b_label="Quarkus")
                 print(f"| {label} | {fmt_val(jv)} | {fmt_val(gv)} | {fmt_val(qv)} | {djg} | {djq} | {dgq} |")
             else:
                 if key == "error_rate" and mean(jv) == 0 and mean(gv) == 0:
                     print(f"| {label} | 0.00% | 0.00% | Empate |")
                     continue
-                d = delta_str(jv, gv, higher_is_better=higher_better)
+                d = delta_str(jv, gv, higher_is_better=higher_better, a_label="Java", b_label="Go")
                 print(f"| {label} | {fmt_val(jv)} | {fmt_val(gv)} | {d} |")
 
         # Memoria
@@ -365,17 +363,17 @@ def print_markdown_report(data, results_dir):
             ga = fmt_val(g_avgs,  " MB") if g_avgs  else "N/A"
             qa = fmt_val(q_avgs,  " MB") if q_avgs  else "N/A"
             if has_quarkus:
-                djgp = delta_str(j_peaks, g_peaks, higher_is_better=False)
-                djqp = delta_str(j_peaks, q_peaks, higher_is_better=False)
-                dgqp = delta_str(g_peaks, q_peaks, higher_is_better=False)
-                djga = delta_str(j_avgs,  g_avgs,  higher_is_better=False)
-                djqa = delta_str(j_avgs,  q_avgs,  higher_is_better=False)
-                dgqa = delta_str(g_avgs,  q_avgs,  higher_is_better=False)
+                djgp = delta_str(j_peaks, g_peaks, higher_is_better=False, a_label="Java",   b_label="Go")
+                djqp = delta_str(j_peaks, q_peaks, higher_is_better=False, a_label="Java",   b_label="Quarkus")
+                dgqp = delta_str(g_peaks, q_peaks, higher_is_better=False, a_label="Go",     b_label="Quarkus")
+                djga = delta_str(j_avgs,  g_avgs,  higher_is_better=False, a_label="Java",   b_label="Go")
+                djqa = delta_str(j_avgs,  q_avgs,  higher_is_better=False, a_label="Java",   b_label="Quarkus")
+                dgqa = delta_str(g_avgs,  q_avgs,  higher_is_better=False, a_label="Go",     b_label="Quarkus")
                 print(f"| **RAM Pico (MB)**  | {jp} | {gp} | {qp} | {djgp} | {djqp} | {dgqp} |")
                 print(f"| **RAM Media (MB)** | {ja} | {ga} | {qa} | {djga} | {djqa} | {dgqa} |")
             else:
-                dp = delta_str(j_peaks, g_peaks, higher_is_better=False)
-                da = delta_str(j_avgs,  g_avgs,  higher_is_better=False)
+                dp = delta_str(j_peaks, g_peaks, higher_is_better=False, a_label="Java", b_label="Go")
+                da = delta_str(j_avgs,  g_avgs,  higher_is_better=False, a_label="Java", b_label="Go")
                 print(f"| **RAM Pico (MB)**  | {jp} | {gp} | {dp} |")
                 print(f"| **RAM Media (MB)** | {ja} | {ga} | {da} |")
         else:
