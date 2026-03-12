@@ -21,8 +21,10 @@ import (
 
 // newRand cria um gerador local por chamada para evitar contenção de mutex
 // no rand global sob alta concorrência (200+ goroutines simultâneas no benchmark).
+// XOR com rand.Int63() previne seed collision quando múltiplas goroutines chamam
+// time.Now().UnixNano() no mesmo nanosegundo (frequente com 500+ VUs simultâneos).
 func newRand() *rand.Rand {
-	return rand.New(rand.NewSource(time.Now().UnixNano()))
+	return rand.New(rand.NewSource(time.Now().UnixNano() ^ rand.Int63()))
 }
 
 func main() {

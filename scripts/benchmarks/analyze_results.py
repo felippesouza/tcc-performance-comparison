@@ -16,6 +16,7 @@ import os
 import re
 import glob
 from collections import defaultdict
+from datetime import datetime, timezone
 
 
 # ── Helpers estatísticos ──────────────────────────────────────────────────────
@@ -103,12 +104,14 @@ def load_k6_summary(filepath: str) -> dict:
     """
     result = {
         "p50_ms": 0.0, "p95_ms": 0.0, "p99_ms": 0.0,
-        "avg_ms": 0.0, "error_rate": 0.0, "total_requests": 0,
+        "avg_ms": 0.0, "error_rate": 0.0, "total_requests": 0, "rps": 0.0,
     }
 
     duration_ms_values = []
     http_reqs_count = 0
     error_count = 0
+    min_ts = None
+    max_ts = None
 
     try:
         with open(filepath, 'r') as f:
@@ -127,6 +130,18 @@ def load_k6_summary(filepath: str) -> dict:
                 metric = entry.get("metric", "")
                 data = entry.get("data", {})
                 val = data.get("value", 0)
+
+                # Rastreia timestamps reais para calcular RPS sem hardcode de duracao
+                ts_str = data.get("time", "")
+                if ts_str and metric == "http_req_duration":
+                    try:
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                        if min_ts is None or ts < min_ts:
+                            min_ts = ts
+                        if max_ts is None or ts > max_ts:
+                            max_ts = ts
+                    except Exception:
+                        pass
 
                 if metric == "http_req_duration":
                     duration_ms_values.append(val)
@@ -148,6 +163,10 @@ def load_k6_summary(filepath: str) -> dict:
     result["p95_ms"] = percentile(duration_ms_values, 95)
     result["p99_ms"] = percentile(duration_ms_values, 99)
     result["error_rate"] = error_count / http_reqs_count * 100 if http_reqs_count > 0 else 0.0
+
+    if min_ts and max_ts:
+        duration_s = (max_ts - min_ts).total_seconds()
+        result["rps"] = round(http_reqs_count / duration_s, 1) if duration_s > 0 else 0.0
 
     return result
 
@@ -272,6 +291,7 @@ def print_text_report(data):
             row("p95 (ms)",            [r["p95_ms"] for r in rounds])
             row("p99 (ms)",            [r["p99_ms"] for r in rounds])
             row("Total Requests",      [r["total_requests"] for r in rounds])
+            row("RPS (req/s)",         [r["rps"] for r in rounds])
             row("Taxa de Erro (%)",    [r["error_rate"] for r in rounds])
 
             # Memoria
@@ -324,6 +344,7 @@ def print_markdown_report(data, results_dir):
             ("p95_ms",         "p95 (ms)",             False),
             ("p99_ms",         "p99 (ms)",             False),
             ("total_requests", "Total Requests",        True),
+            ("rps",            "RPS (req/s)",           True),
             ("error_rate",     "Taxa de Erro (%)",     False),
         ]
 
