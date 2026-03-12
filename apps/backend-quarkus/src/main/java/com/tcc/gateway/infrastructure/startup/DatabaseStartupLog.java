@@ -40,10 +40,14 @@ public class DatabaseStartupLog {
     @ConfigProperty(name = "quarkus.redis.max-pool-size", defaultValue = "200")
     int redisMaxPoolSize;
 
+    @ConfigProperty(name = "quarkus.rest-client.external-api.connection-pool-size", defaultValue = "600")
+    int restClientPoolSize;
+
     void onStart(@Observes StartupEvent ev) {
         LOG.infof("Pool de conexões configurado — max=%d, min=%d, acquisition-timeout=%s",
             maxPoolSize, minPoolSize, acquisitionTimeout);
         LOG.infof("Thread pool configurado — max-threads=%d", maxThreads);
         LOG.infof("Redis pool configurado — max-pool-size=%d", redisMaxPoolSize);
+        LOG.infof("REST client pool configurado — connection-pool-size=%d", restClientPoolSize);
     }
 }
