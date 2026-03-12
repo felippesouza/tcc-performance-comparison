@@ -3,7 +3,7 @@
 // Autor:       Felippe Gustavo de Souza e Silva
 // Instituicao: USP ESALQ — Engenharia de Software
 // Orientador:  Prof. Marcos Jardel Henriques
-// Ano:         2025
+// Ano:         2026
 // Repositorio: https://github.com/felippesouza/tcc-performance-comparison
 // ============================================================
 package middleware

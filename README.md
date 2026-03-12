@@ -13,7 +13,7 @@ O cenário de teste simula um **Gateway de Pagamentos** com gargalo de I/O exter
 > **Autor:** Felippe Gustavo de Souza e Silva
 > **Instituição:** USP ESALQ — Engenharia de Software
 > **Orientador:** Prof. Marcos Jardel Henriques
-> **Ano:** 2025
+> **Ano:** 2026
 
 ---
 
@@ -29,7 +29,7 @@ O Quarkus Native resolve essa questão:
 
 Com os três, o experimento prova empiricamente que:
 1. O custo de RAM do Java vem da JVM, não da linguagem
-2. O colapso sob carga vem do modelo de threading, não da linguagem nem do runtime
+2. O diferencial sob carga extrema vem da maturidade do ecossistema (pools, bibliotecas), não do modelo de concorrência em si
 
 ---
 
@@ -73,7 +73,7 @@ Com os três, o experimento prova empiricamente que:
 | Taxa de erro | 0% | 0.2% | 0.5% | — |
 | RAM pico | 1.935 MB | 78 MB | **464 MB** | — |
 
-**Go e Quarkus empatam em throughput; Java degrada.** A causa não é o modelo de Virtual Threads — é o HikariCP: usa `synchronized` internamente, o que **pina Virtual Threads ao carrier OS thread** sob contention de pool. Com 500 VUs e 200 conexões disponíveis, 300 VUs ficam em fila e os carriers esgotam. Go (`pgxpool`) e Quarkus (`Agroal`) não têm esse problema.
+**Go e Quarkus empatam em throughput; Java degrada.** A causa não é o modelo de Virtual Threads — Java 25 possui o **JEP 491** (entregue no Java 24), que eliminou o pinning de `synchronized` na JVM. Isso foi confirmado empiricamente: **zero eventos de pinning** registrados pelo flag `-Djdk.tracePinnedThreads=full` durante os testes. A degradação é arquitetural no HikariCP: sua implementação interna usa `synchronized` como ponto único de serialização do pool, criando **contenção de lock** sob 500 VTs simultâneas. Go (`pgxpool`) usa channels nativos — lock-free por design. Quarkus (`Agroal`) foi projetado sem `synchronized` no caminho crítico.
 
 RAM no spike revela o custo real de OS threads: Quarkus com 600 threads simultâneas usa 464 MB (600 × ~512 KB de stack), Go usa 78 MB (goroutines ~2 KB cada) — **mesma performance, 6× mais RAM**.
 
@@ -90,8 +90,8 @@ Quarkus Native empata com Go e Java no stress (200 VUs). O colapso anterior era 
 **3. O diferencial de OS threads é RAM, não throughput**
 Go e Quarkus entregam ~650 req/s no spike. Go usa 78 MB, Quarkus usa 464 MB — 6× mais RAM pelo mesmo resultado. Esse é o custo real do modelo 1:1 de threading.
 
-**4. Virtual Threads têm limitação com HikariCP sob contention**
-Java degrada no spike (pool=200) porque HikariCP usa `synchronized`, pinando VTs a carriers. Isso é uma limitação de integração (não do modelo VT), corrigível com pool=500 ou migrando para driver JDBC não-pinante.
+**4. O ecossistema Java ainda não está totalmente adaptado a Virtual Threads**
+Java 25 tem JEP 491 — `synchronized` **não pina mais** VTs ao carrier thread (zero eventos confirmados em log). A degradação no spike não é do modelo VT: é do HikariCP, cuja arquitetura interna usa `synchronized` como ponto de serialização do pool, criando contenção sob 500 VTs simultâneas. Go's `pgxpool` usa channels nativos, sem esse gargalo. Isso revela que o benefício pleno de Virtual Threads depende da evolução das bibliotecas do ecossistema, não apenas da JVM.
 
 **5. Programação reativa perdeu sua principal justificativa**
 Reactive programming surgiu para compensar OS threads bloqueantes. Com goroutines e Virtual Threads, a complexidade não se paga — código imperativo entrega a mesma eficiência com muito menos complexidade.

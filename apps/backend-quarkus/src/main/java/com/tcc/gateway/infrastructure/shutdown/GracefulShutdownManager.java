@@ -3,7 +3,7 @@
 // Autor:       Felippe Gustavo de Souza e Silva
 // Instituição: USP ESALQ — Engenharia de Software
 // Orientador:  Prof. Marcos Jardel Henriques
-// Ano:         2025
+// Ano:         2026
 // Repositório: https://github.com/felippesouza/tcc-performance-comparison
 // ============================================================
 package com.tcc.gateway.infrastructure.shutdown;
