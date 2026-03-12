@@ -1,8 +1,14 @@
-# TCC: Estudo Comparativo de Concorrência - Java 25 vs Go 1.25
+# TCC: Estudo Comparativo de Modelos de Concorrência — Java 25 vs Go 1.25 vs Quarkus Native
 
-Este projeto tem como objetivo realizar uma pesquisa científica e acadêmica comparando a performance, o footprint de memória e o comportamento de escalabilidade entre as **Virtual Threads (Project Loom)** do **Java 25** e as **Goroutines** da linguagem **Go 1.25**.
+Este projeto realiza uma pesquisa científica e acadêmica comparando performance, footprint de memória e escalabilidade entre três modelos de concorrência em workloads I/O-bound:
 
-O cenário de teste simula um ambiente de alta concorrência focado em gargalos de **I/O Bound**: um Gateway de Pagamentos.
+| Backend | Runtime | Modelo de Concorrência |
+|---|---|---|
+| **Java 25** | JVM (ZGC) | Virtual Threads — M:N scheduling (Project Loom) |
+| **Go 1.25** | Nativo | Goroutines — M:N scheduling (runtime Go) |
+| **Quarkus Native** | Nativo (GraalVM Mandrel) | OS Threads — 1:1 blocking |
+
+O cenário de teste simula um **Gateway de Pagamentos** com gargalo de I/O externo (200–500ms), projetado para revelar o comportamento de cada modelo sob carga crescente.
 
 > **Autor:** Felippe Gustavo de Souza e Silva
 > **Instituição:** USP ESALQ — Engenharia de Software
@@ -11,199 +17,270 @@ O cenário de teste simula um ambiente de alta concorrência focado em gargalos 
 
 ---
 
-## 🏗️ Arquitetura do Sistema
+## Por que três backends?
 
-Ambos os backends (Java e Go) foram desenvolvidos seguindo rigorosamente as premissas da **Clean Architecture** e os princípios **SOLID**. Isso garante que a comparação seja feita "maçã com maçã", onde a lógica de negócio é idêntica e a única variável que muda é a tecnologia subjacente e o modelo de concorrência.
+A comparação Java vs Go isolada deixa uma ambiguidade: *a diferença de RAM é do modelo de concorrência ou da JVM?*
 
-### Padrões Aplicados:
-*   **Isolamento de Domínio:** As entidades de negócio não conhecem frameworks ou bancos de dados.
-*   **Inversão de Dependência (DIP):** Use Cases interagem com adaptadores através de interfaces.
-*   **Responsabilidade Única (SRP):** Uso extensivo de Mappers dedicados (MapStruct no Java, mapeamento explícito no Go) e DTOs para separar as camadas de rede e persistência da lógica core.
-*   **Fail-Fast & Tuning:** O pool de conexões (HikariCP / pgxpool) foi dimensionado para 50 conexões, com timeouts curtos para evidenciar o gerenciamento de threads sem mascarar falhas no banco.
-*   **Idempotência:** Ambos os backends implementam verificação de idempotência via `X-Idempotency-Key` com TTL de 24h no Redis, garantindo simetria científica no comportamento sob retries.
+O Quarkus Native resolve essa questão:
 
-### Visão Geral da Infraestrutura
+- **Java vs Quarkus** — mesmo código Java, JVM vs binário nativo → isola o custo da JVM
+- **Go vs Quarkus** — ambos nativos, sem JVM → isola **exclusivamente** o modelo de concorrência
+- **Java vs Go** — confronta os dois modelos M:N entre si
+
+Com os três, o experimento prova empiricamente que:
+1. O custo de RAM do Java vem da JVM, não da linguagem
+2. O colapso sob carga vem do modelo de threading, não da linguagem nem do runtime
+
+---
+
+## Resultados (Apple M4, Colima ARM64, pool=200, 3 rodadas)
+
+### Baseline — 20 VUs, 2 minutos
+
+| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native |
+|---|---|---|---|
+| Latência média | 359ms | 353ms | 358ms |
+| Total requests | 2.912 | 2.953 | 2.919 |
+| RAM pico | 753 MB | 61 MB | 56 MB |
+
+**Todos empatam em performance.** Com carga leve, o gargalo é o I/O externo (200–500ms) — o modelo de threading não faz diferença. A única variável relevante é RAM: Java consome 13× mais que Go/Quarkus.
+
+---
+
+### Stress — 200 VUs, ~2 minutos
+
+| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native |
+|---|---|---|---|
+| Latência média | 354ms | 352ms | 2.720ms |
+| Total requests | 37.505 | 37.691 | 6.105 |
+| Taxa de erro | 0% | 0% | 0% |
+| RAM pico | 1.420 MB | 79 MB | 91 MB |
+
+**Java e Go empatam completamente.** Virtual Threads e goroutines resolvem o I/O-bound da mesma forma. Quarkus com OS threads colapsa: 83% menos throughput, latência 7× maior. RAM: Go e Quarkus no mesmo tier (79 MB vs 91 MB) — Java 18× mais pesado.
+
+---
+
+### Spike — 500 VUs, 1 minuto
+
+| Métrica | Java 25 (VT) | Go 1.25 | Quarkus Native |
+|---|---|---|---|
+| Latência média | 724ms | 353ms | 4.646ms |
+| p50 | 751ms | 353ms | 5.008ms |
+| p95 | 919ms | 488ms | 5.439ms |
+| Total requests | 21.596 | 39.182 | 3.966 |
+| Taxa de erro | 0% | 0.2% | 38.3% |
+| RAM pico | 1.938 MB | 108 MB | 250 MB |
+
+**Go domina.** Goroutines absorvem 500 VUs sem pressão: 39k requests, 353ms estável. Java com Virtual Threads sente contention (pool HikariCP, scheduler JVM) mas permanece funcional. Quarkus com OS threads entra em colapso parcial: 38% de erros, 250 MB de RAM (600 stacks de OS thread).
+
+---
+
+## Conclusões Científicas
+
+**1. O custo de RAM é da JVM, não do Java**
+Quarkus Native (Java AOT) usa 56–250 MB — equiparável ao Go (61–108 MB). Java JVM usa 753–1938 MB. A linguagem não é o problema; o runtime é.
+
+**2. O modelo de concorrência determina performance sob carga**
+Go e Java VT têm performance equivalente até carga extrema. OS threads (Quarkus) colapsam porque cada thread bloqueada esperando I/O é uma thread perdida. M:N scheduling (goroutines/VT) desmultiplexa o I/O sem desperdiçar threads.
+
+**3. Programação reativa perdeu sua principal justificativa**
+Reactive programming (Mutiny, Project Reactor) surgiu para compensar o custo das OS threads. Com Virtual Threads e goroutines, essa complexidade não se paga: o código permanece imperativo, síncrono e debugável com a mesma eficiência de I/O.
+
+---
+
+## Arquitetura do Sistema
+
+Todos os três backends seguem **Clean Architecture** com as mesmas camadas e lógica de negócio. A única variável que muda entre eles é o framework e o modelo de concorrência — garantindo comparação justa.
 
 ```mermaid
 graph TD
     subgraph "Ambiente de Teste (Docker)"
-        LG[Load Generator - k6] -->|HTTP POST| GW[Gateway Service Java/Go]
-        GW -->|Check Idempotency| RD[(Redis)]
-        GW -->|Persist Status| DB[(PostgreSQL)]
-        GW -->|External I/O 200-500ms| MK[Mock External API]
-        GW -->|Expõe métricas| PR[Prometheus :9090]
+        LG[Load Generator - k6] -->|HTTP POST| J[Java 25 :8081]
+        LG -->|HTTP POST| G[Go 1.25 :8082]
+        LG -->|HTTP POST| Q[Quarkus Native :8083]
+        J & G & Q -->|Check Idempotency| RD[(Redis)]
+        J & G & Q -->|Persist Status| DB[(PostgreSQL)]
+        J & G & Q -->|External I/O 200-500ms| MK[Mock External API]
+        J & G & Q -->|Expõe métricas| PR[Prometheus :9090]
         PR -->|Datasource| GF[Grafana :3000]
     end
 
-    style GW fill:#f9f,stroke:#333,stroke-width:2px
-    style MK fill:#bbf,stroke:#333,stroke-width:1px
-    style PR fill:#f80,stroke:#333,stroke-width:1px
-    style GF fill:#0a0,stroke:#333,stroke-width:1px
+    style J fill:#f5a623,stroke:#333
+    style G fill:#00add8,stroke:#333
+    style Q fill:#9933cc,stroke:#333
+    style MK fill:#bbf,stroke:#333
+    style PR fill:#f80,stroke:#333
+    style GF fill:#0a0,stroke:#333
 ```
 
-## 🔄 Fluxo de Processamento de Pagamento (I/O Bound)
-
-O ponto crítico para o TCC é o **tempo de espera (I/O Wait)** enquanto o backend aguarda o Banco de Dados e, principalmente, a API Externa.
+### Fluxo de Processamento (I/O Bound)
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant C as Load Generator (k6)
-    participant G as Gateway (Java/Go)
+    participant B as Backend (Java/Go/Quarkus)
     participant RD as Redis (Idempotency)
     participant DB as PostgreSQL
-    participant M as Mock API (Ext)
+    participant M as Mock API (200-500ms)
 
-    C->>G: POST /payments (X-Idempotency-Key)
-    activate G
-    G->>RD: GET idempotency_key
+    C->>B: POST /payments (X-Idempotency-Key)
+    activate B
+    B->>RD: GET idempotency_key
     alt Cache Hit
-        RD-->>G: PaymentResponse (cached)
-        G-->>C: 200 OK (idempotent)
+        RD-->>B: PaymentResponse (cached)
+        B-->>C: 201 Created (idempotent)
     else Cache Miss
-        G->>DB: savePayment(PENDING)
-        Note over G,M: Virtual Thread / Goroutine é desanexada da OS Thread
+        B->>DB: INSERT payment (PENDING)
+        Note over B,M: VT/Goroutine suspensa — OS thread liberada
         rect rgb(230, 230, 250)
-            G->>M: POST /process-external
-            M-->>G: 200 OK (Approved/Rejected) ~200-500ms
+            B->>M: POST /process-external
+            M-->>B: 200 OK (~200-500ms)
         end
-        Note over G,M: Virtual Thread / Goroutine é retomada
-        G->>DB: updatePayment(FINAL_STATUS)
-        G->>RD: SET idempotency_key (TTL 24h)
-        G-->>C: 201 Created
+        Note over B,M: VT/Goroutine retomada
+        B->>DB: UPDATE payment (APPROVED/REJECTED)
+        B->>RD: SETEX idempotency_key (TTL 24h)
+        B-->>C: 201 Created
     end
-    deactivate G
+    deactivate B
 ```
 
 ---
 
-## 🛠️ Stack Tecnológica
+## Stack Tecnológica
 
-### Backend Java
-*   **Linguagem:** Java 25 (LTS)
-*   **Framework:** Spring Boot 3.5+
-*   **Concorrência:** Virtual Threads (`spring.threads.virtual.enabled=true`)
-*   **Pinning Detection:** `-Djdk.tracePinnedThreads=full`
-*   **GC:** ZGC Generational (`-XX:+UseZGC -XX:+ZGenerational`)
-*   **Database:** Spring Data JPA + Hibernate + HikariCP (max 50 conexões)
-*   **Cache/Idempotência:** Spring Data Redis + `StringRedisTemplate`
-*   **Mapeamento:** MapStruct
-*   **HTTP Client:** Spring `RestClient` com timeout de 5s (otimizado para Loom)
-*   **Métricas:** Micrometer + Actuator (`/actuator/prometheus`)
+### Backend Java (`:8081`)
+- **Runtime:** Java 25 + JVM ZGC Generational
+- **Framework:** Spring Boot 3.5
+- **Concorrência:** Virtual Threads (`spring.threads.virtual.enabled=true`)
+- **Pool DB:** HikariCP 200 conexões
+- **Cache:** Spring Data Redis
+- **Métricas:** Micrometer + Actuator `/actuator/prometheus`
 
-### Backend Go
-*   **Linguagem:** Go 1.25
-*   **Framework HTTP:** Gin (`gin-gonic`)
-*   **Concorrência:** Goroutines nativas + `net/http`
-*   **Database:** `pgxpool` (Driver oficial de alta performance para Postgres, max 50 conexões)
-*   **Cache/Idempotência:** `go-redis/v9` com TTL de 24h
-*   **HTTP Client:** `net/http` com timeout de 5s
-*   **Métricas:** `prometheus/client_golang` — middleware customizado com labels simétricos ao Java (`/metrics`)
-*   **Arquitetura:** Injeção de dependência manual (idiomática)
+### Backend Go (`:8082`)
+- **Runtime:** Go 1.25 (binário nativo)
+- **Framework:** Gin
+- **Concorrência:** Goroutines nativas
+- **Pool DB:** pgxpool 200 conexões
+- **Cache:** go-redis/v9
+- **Métricas:** prometheus/client_golang `/metrics`
+
+### Backend Quarkus Native (`:8083`)
+- **Runtime:** GraalVM Mandrel (binário nativo, sem JVM)
+- **Framework:** Quarkus 3.15.1 LTS
+- **Concorrência:** OS Threads bloqueantes (modelo de contraste)
+- **Pool DB:** Agroal 200 conexões
+- **Cache:** quarkus-redis-client (blocking API)
+- **Métricas:** Micrometer + `/actuator/prometheus`
+- **Build:** `./mvnw package -Pnative` (~90s)
 
 ### Observabilidade
-*   **Documentação:** OpenAPI 3 / Swagger (`springdoc` no Java, `swaggo` no Go)
-*   **Coleta de Métricas:** Prometheus (scrape interval 5s em ambos os backends)
-*   **Dashboards:** Grafana com dashboard pré-provisionado (`tcc-comparison`) — 9 painéis: Throughput, p95, p99, Error Rate, VT vs Goroutines, Memory, CPU, OS Threads (Go), GC Pauses
+- **Prometheus** — scrape interval 5s nos 3 backends
+- **Grafana** — dashboard pré-provisionado com cores distintas por backend (Java: laranja, Go: azul, Quarkus: roxo), 9+ painéis: throughput, latência, RAM RSS, in-flight requests, CPU, pool metrics
 
 ### Load Testing
-*   **Ferramenta:** k6
-*   **Cenários:**
-    | Cenário | VUs | Descrição |
-    |---------|-----|-----------|
-    | `baseline` | 20 | Comportamento sob carga controlada |
-    | `stress` | 200 | Saturação progressiva do modelo de concorrência |
-    | `spike` | 500 | Rajada abrupta — resiliência sob carga extrema |
+- **Ferramenta:** k6
+- **Cenários:**
+
+| Cenário | VUs | Duração | Objetivo |
+|---|---|---|---|
+| `baseline` | 20 | 2 min | Comportamento sob carga controlada |
+| `stress` | 200 | ~2 min | Saturação do modelo de concorrência |
+| `spike` | 500 | 1 min | Rajada extrema — resiliência |
 
 ---
 
-## 📁 Estrutura do Monorepo
+## Estrutura do Monorepo
 
 ```text
 /
 ├── apps/
-│   ├── backend-java/           # Aplicação Spring Boot (Java 25 + Virtual Threads)
-│   ├── backend-go/             # Aplicação Gin (Go 1.25 + Goroutines)
-│   └── mock-external-api/      # Serviço Go que simula latência de adquirente (200-500ms)
-├── postman/                    # Collections para testes manuais (Java e Go)
+│   ├── backend-java/           # Spring Boot (Java 25 + Virtual Threads)
+│   ├── backend-go/             # Gin (Go 1.25 + Goroutines)
+│   ├── backend-quarkus/        # Quarkus 3.15.1 (GraalVM Mandrel Native + OS Threads)
+│   └── mock-external-api/      # Simula adquirente externa (200-500ms latência)
+├── results/
+│   └── local_benchmarks/
+│       └── THREE_WAY_BENCHMARK_REPORT.md  # Resultados comparativos completos
 ├── scripts/
 │   ├── benchmarks/
-│   │   └── stress_test.js      # Script k6 com 3 cenários científicos
+│   │   ├── run_benchmarks.sh   # Runner automatizado (27 runs + FLUSHALL Redis)
+│   │   ├── stress_test.js      # Script k6 (3 cenários)
+│   │   └── analyze_results.py  # Análise estatística (média, desvio, deltas)
 │   └── monitoring/
-│       ├── prometheus.yml       # Configuração de scrape do Prometheus
+│       ├── prometheus.yml
 │       └── grafana/
-│           ├── provisioning/    # Datasource e dashboard auto-provisionados
+│           ├── provisioning/
 │           └── dashboards/
-│               └── tcc-comparison.json  # Dashboard científico (9 painéis)
-├── METRICS.md                  # Documentação das métricas coletadas para o TCC
-└── docker-compose.yml          # Orquestração completa do ambiente
+│               └── tcc-comparison.json
+├── postman/                    # Collections para testes manuais
+├── docs/
+│   └── METODOLOGIA_BENCHMARK.md
+└── docker-compose.yml
 ```
 
 ---
 
-## 🚀 Como Executar e Testar Localmente
+## Como Executar
 
-### 1. Subir a Infraestrutura Completa
-Na raiz do projeto, execute:
+### 1. Subir a infraestrutura completa
+
 ```bash
-docker-compose up -d --build
-```
-Isso iniciará todos os serviços com healthchecks e ordem de dependência garantida:
-*   PostgreSQL (`:5432`)
-*   Redis (`:6379`)
-*   Mock External API (`:8080`)
-*   Backend Java (`:8081`)
-*   Backend Go (`:8082`)
-*   Prometheus (`:9090`)
-*   Grafana (`:3000`)
-
-### 2. Acessar a Documentação (Swagger)
-*   **Java:** [http://localhost:8081/swagger-ui.html](http://localhost:8081/swagger-ui.html)
-*   **Go:** [http://localhost:8082/swagger/index.html](http://localhost:8082/swagger/index.html)
-
-### 3. Acessar o Dashboard de Observabilidade
-*   **Grafana:** [http://localhost:3000](http://localhost:3000) — login: `admin` / `admin`
-    *   Dashboard `TCC — Java 25 vs Go 1.25` é carregado automaticamente
-*   **Prometheus:** [http://localhost:9090](http://localhost:9090)
-
-### 4. Testes Manuais (Postman)
-Na pasta `/postman`, existem duas collections (`TCC_Java_25_Collection.json` e `TCC_Go_125_Collection.json`). Importe-as no Postman para validar o caminho feliz, erros de validação e o comportamento de idempotência via `X-Idempotency-Key`.
-
-### 5. Executar os Benchmarks (k6)
-
-O script suporta 3 cenários via variável de ambiente `SCENARIO`:
-
-**Baseline (20 VUs) — carga controlada:**
-```bash
-# Java
-k6 run -e TARGET_URL=http://localhost:8081/payments -e SCENARIO=baseline scripts/benchmarks/stress_test.js
-
-# Go
-k6 run -e TARGET_URL=http://localhost:8082/payments -e SCENARIO=baseline scripts/benchmarks/stress_test.js
+docker compose up -d --build
 ```
 
-**Stress (200 VUs) — saturação progressiva:**
-```bash
-# Java
-k6 run -e TARGET_URL=http://localhost:8081/payments -e SCENARIO=stress scripts/benchmarks/stress_test.js
+Serviços iniciados:
+- PostgreSQL (`:5432`)
+- Redis (`:6379`)
+- Mock External API (`:8080`)
+- Backend Java (`:8081`)
+- Backend Go (`:8082`)
+- Backend Quarkus Native (`:8083`) — aguarde ~2s para o binário nativo inicializar
+- Prometheus (`:9090`)
+- Grafana (`:3000`)
 
-# Go
-k6 run -e TARGET_URL=http://localhost:8082/payments -e SCENARIO=stress scripts/benchmarks/stress_test.js
+> **Nota:** O build do Quarkus Native leva ~90s na primeira vez (compilação GraalVM AOT). Builds subsequentes usam cache Docker.
+
+### 2. Executar a bateria completa de benchmarks
+
+```bash
+bash scripts/benchmarks/run_benchmarks.sh
 ```
 
-**Spike (500 VUs) — rajada extrema:**
-```bash
-# Java
-k6 run -e TARGET_URL=http://localhost:8081/payments -e SCENARIO=spike scripts/benchmarks/stress_test.js
+Executa 27 runs (3 backends × 3 cenários × 3 rodadas) com FLUSHALL Redis antes de cada run. Resultados salvos em `results/runs/<timestamp>/`.
 
-# Go
-k6 run -e TARGET_URL=http://localhost:8082/payments -e SCENARIO=spike scripts/benchmarks/stress_test.js
+### 3. Gerar relatório estatístico
+
+```bash
+# Texto (terminal)
+python3 scripts/benchmarks/analyze_results.py results/runs/<timestamp>
+
+# Markdown
+python3 scripts/benchmarks/analyze_results.py results/runs/<timestamp> --format markdown
 ```
 
-> **Nota científica:** Cada cenário usa `X-Idempotency-Key` único por VU/iteração (`k6-vu${VU}-iter${ITER}`), garantindo que nenhuma requisição seja servida do cache Redis — todas passam pelo fluxo completo de I/O.
+### 4. Acessar observabilidade
 
-### 6. Métricas Raw do Prometheus
-*   **Java:** [http://localhost:8081/actuator/prometheus](http://localhost:8081/actuator/prometheus)
-*   **Go:** [http://localhost:8082/metrics](http://localhost:8082/metrics)
+- **Grafana:** `http://localhost:3000` — dashboard `TCC — Java 25 vs Go 1.25 vs Quarkus Native` carregado automaticamente
+- **Prometheus:** `http://localhost:9090`
+- **Swagger Java:** `http://localhost:8081/swagger-ui.html`
+- **Swagger Go:** `http://localhost:8082/swagger/index.html`
+- **Swagger Quarkus:** `http://localhost:8083/swagger-ui.html`
 
-Ambos expõem a mesma métrica-chave: `http_server_requests_seconds` com labels `{method, uri, status, outcome}` — simetria intencional para queries idênticas no Grafana.
+### 5. Teardown completo (limpa volumes)
+
+```bash
+docker compose down --volumes
+```
+
+---
+
+## Metodologia
+
+- **Redis FLUSHALL** antes de cada run — evita que cache de idempotência de testes anteriores mascare resultados
+- **`X-Idempotency-Key` único por VU/iteração** — garante que todas as requisições percorram o fluxo completo de I/O
+- **3 rodadas por cenário/backend** — média e desvio padrão para estabilidade estatística
+- **RAM capturada via `docker stats`** em paralelo durante cada run — footprint real em tempo de execução
+- **Pool de conexões 200** em todos os backends — configuração simétrica
+
+Relatório completo de metodologia: [`docs/METODOLOGIA_BENCHMARK.md`](docs/METODOLOGIA_BENCHMARK.md)
