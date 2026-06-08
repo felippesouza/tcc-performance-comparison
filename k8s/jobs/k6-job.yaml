@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k6-script
+  namespace: tcc
+data:
+  stress_test.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import { Rate } from 'k6/metrics';
+
+    export const errorRate = new Rate('errors');
+
+    const SCENARIO = __ENV.SCENARIO || 'stress';
+
+    const scenarios = {
+      baseline: {
+        stages: [
+          { duration: '30s', target: 10 },
+          { duration: '60s', target: 20 },
+          { duration: '30s', target: 0 },
+        ],
+        thresholds: {
+          http_req_duration: ['p(95)<1000', 'p(99)<1500'],
+          errors: ['rate<0.01'],
+        },
+      },
+      stress: {
+        stages: [
+          { duration: '10s', target: 50 },
+          { duration: '30s', target: 200 },
+          { duration: '60s', target: 200 },
+          { duration: '10s', target: 0 },
+        ],
+        thresholds: {
+          http_req_duration: ['p(95)<800', 'p(99)<1500'],
+          errors: ['rate<0.01'],
+        },
+      },
+      spike: {
+        stages: [
+          { duration: '10s', target: 10 },
+          { duration: '5s',  target: 500 },
+          { duration: '30s', target: 500 },
+          { duration: '5s',  target: 10 },
+          { duration: '10s', target: 0 },
+        ],
+        thresholds: {
+          http_req_duration: ['p(95)<2000', 'p(99)<4000'],
+          errors: ['rate<0.05'],
+        },
+      },
+    };
+
+    const selected = scenarios[SCENARIO];
+    if (!selected) {
+      throw new Error(`Cenário inválido: "${SCENARIO}"`);
+    }
+
+    export const options = {
+      stages: selected.stages,
+      thresholds: selected.thresholds,
+    };
+
+    export default function () {
+      const url = __ENV.TARGET_URL || 'http://backend-java:8081/payments';
+
+      const payload = JSON.stringify({
+        amount: parseFloat((Math.random() * 1000).toFixed(2)),
+        cardNumber: '1234-5678-9012-3456',
+      });
+
+      const params = {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': `k6-vu${__VU}-iter${__ITER}`,
+        },
+      };
+
+      const res = http.post(url, payload, params);
+
+      const success = check(res, {
+        'status is 201': (r) => r.status === 201,
+        'has payment id': (r) => {
+          try { return JSON.parse(r.body).id !== undefined; } catch { return false; }
+        },
+      });
+
+      errorRate.add(!success);
+      sleep(0.1);
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-benchmark
+  namespace: tcc
+spec:
+  template:
+    spec:
+      containers:
+        - name: k6
+          image: grafana/k6:0.51.0
+          command:
+            - "k6"
+            - "run"
+            - "/scripts/stress_test.js"
+          env:
+            - name: TARGET_URL
+              value: "http://backend-java:8081/payments"
+            - name: SCENARIO
+              value: "stress"
+          volumeMounts:
+            - name: script-volume
+              mountPath: /scripts
+      restartPolicy: Never
+      volumes:
+        - name: script-volume
+          configMap:
+            name: k6-script
+  backoffLimit: 0
