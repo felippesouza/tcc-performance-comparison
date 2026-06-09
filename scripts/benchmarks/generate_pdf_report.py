@@ -403,7 +403,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 
     <!-- AFILIAÇÕES DE RODAPÉ (PRIMEIRA PÁGINA) -->
     <div class="affiliations">
-        ¹ Bacharel em Engenharia de Computação. USP/Esalq, Piracicaba - SP. *E-mail autor correspondente: felippe-gustavo@hotmail.com<br>
+        ¹ Especializando em Engenharia da Computação. USP/Esalq, Piracicaba - SP. *E-mail autor correspondente: felippe-gustavo@hotmail.com<br>
         ² Doutor em Engenharia de Software. Orientador USP/Esalq, Piracicaba - SP. E-mail: marcos.henriques@usp.br
     </div>
 
