@@ -18,7 +18,7 @@ spec:
           image: us-central1-docker.pkg.dev/tcc-performance-2026/tcc-benchmarks/mock-api:latest
           ports:
             - containerPort: 8080
-          environment:
+          env:
             - name: PORT
               value: "8080"
             - name: MIN_LATENCY_MS

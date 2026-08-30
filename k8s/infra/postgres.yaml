@@ -16,8 +16,8 @@ spec:
       containers:
         - name: postgres
           image: postgres:16-alpine
-          command: ["postgres", "-c", "max_connections=300"]
-          environment:
+          args: ["-c", "max_connections=300"]
+          env:
             - name: POSTGRES_DB
               value: gateway_db
             - name: POSTGRES_USER

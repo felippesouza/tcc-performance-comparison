@@ -202,9 +202,9 @@ run_scenario() {
   rm -f "$stop_flag"
   wait "$MEM_PID" 2>/dev/null || true
 
-  # Copia arquivo de resultados (como helper e o primeiro container, kubectl cp usa ele por padrao)
+  # Copia arquivo de resultados
   echo "  [k6] Coletando resultados..."
-  kubectl cp -n "$NAMESPACE" k6-benchmark:/shared/result.json "$output_file" >/dev/null
+  MSYS_NO_PATHCONV=1 kubectl exec -n "$NAMESPACE" k6-benchmark -c helper -- cat //shared/result.json > "$output_file"
 
   # Remove pod do k6
   kubectl delete pod -n "$NAMESPACE" k6-benchmark --grace-period=0 --force >/dev/null 2>&1

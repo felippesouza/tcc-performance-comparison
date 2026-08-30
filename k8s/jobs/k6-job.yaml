@@ -82,7 +82,7 @@ data:
       const success = check(res, {
         'status is 201': (r) => r.status === 201,
         'has payment id': (r) => {
-          try { return JSON.parse(r.body).id !== undefined; } catch { return false; }
+          try { return JSON.parse(r.body).id !== undefined; } catch(e) { return false; }
         },
       });
 

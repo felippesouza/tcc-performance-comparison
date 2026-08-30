@@ -17,7 +17,7 @@ USER quarkus
 
 COPY --chown=quarkus:quarkus src src
 
-RUN ./mvnw package -Pnative -DskipTests -q
+RUN sed -i 's/\r$//' mvnw && ./mvnw package -Pnative -DskipTests -q
 
 # -- Stage 2: Minimal runtime -----------------------------------------------
 FROM debian:bookworm-slim
