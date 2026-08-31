@@ -113,6 +113,17 @@ Ordered top to bottom. Array position *is* the hierarchy.
 | **ANBU** | 暗部 | guardrail | Invisible always-on guard. Answers directly to Hokage-level config, **bypassing the chain**, and **can block**. Not a shinobi with judgment: it forces the STOP, the agent judges at the pause. |
 | **Ne** | 根 | watch | Root. Watches the ANBU themselves and reports **directly to the Hokage**. Tracks liveness, bypass rate and self-integrity — because a guardrail that fails silently is worse than an absent one. |
 
+**The `id` values — the foreign key, which is NOT the display name.** Roster records reference a
+rank by `id`, and the display label is derived from it, never the reverse:
+
+```js
+daimyo · kage · jounin · chuunin · genin · anbu · ne
+```
+
+Note `kage` ↔ **Hokage**: the id is the generic rank, the label is the village-specific title. Get
+this wrong and every roster record fails to resolve while looking perfectly readable. Array order
+**is** the hierarchy — do not sort the table for display without preserving the source order.
+
 Two structural notes for a port:
 
 - **Daimyō, ANBU and Ne sit outside the executing chain.** Daimyō is the human principal; ANBU and
@@ -210,13 +221,54 @@ hard output contract — the contract is what makes delegation pay for itself.
 | **blind-judge** | Genin | strong | Offline scoring of another agent's run against a frozen rubric. Never sees the orchestrator's reasoning. |
 | **bounded-editor** | Chuunin | inherit | 1–2 file edits. **Hard-refuses 3+ files — a literal scope cap.** |
 | **reviewer** | Chuunin | mid | One line per finding, severity-tagged, no praise, no scope creep. |
-| **investigator** | Chuunin | mid | Diagnosis from external data (logs/metrics/traces). Bounded token budget with a declared irreducible core (§11.2). |
+| **investigator** | Chuunin | mid | Diagnosis from external data (logs/metrics/traces). Bounded token budget with a declared irreducible core (§11.3). |
 | **test-writer** | Chuunin | strong | Tests that assert behaviour at the observable layer. |
 | **coordinator** | Jounin | inherit | The only rank that may dispatch. Breaks up large missions, guards loops. |
+
+**Tool grant per archetype.** The roster stores only the two derived booleans (`dispatch`,
+`mutates`), because duplicating a full tool list creates a second source of truth that rots. But the
+grant itself has to be decided somewhere, so decide it here:
+
+| Archetype | Read | Search | Shell | Edit/Write | Dispatch | External/MCP |
+|---|---|---|---|---|---|---|
+| locator · doc-reader | ✅ | ✅ | read-only cmds | ❌ | ❌ | ❌ |
+| sweeper | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| digest | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| blind-judge | ✅ | ✅ | read-only cmds | ❌ | ❌ | ❌ |
+| bounded-editor | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| reviewer | ✅ | ✅ | read-only cmds | ❌ | ❌ | ❌ |
+| investigator | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ (its data source) |
+| test-writer | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| coordinator | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Two rules that matter more than the grid:
+
+- **`mutates: true` and `dispatch: true` together is the coordinator, and nothing else.** Any other
+  archetype holding both is a coordinator you did not mean to create.
+- **The scope cap is a prompt rule, not a tool restriction.** `bounded-editor` "hard-refuses 3+
+  files" because its definition says so — the tool layer cannot count files across calls. That means
+  the cap is **self-enforced and therefore capped at `provavel`** (§9.2), and nothing in §5 enforces
+  it. If a 3-file edit slipping through would be expensive for you, the honest answer is a
+  PreToolUse counter, not a firmer sentence in the prompt.
+
+**The orchestrator has no archetype row on purpose** — it is not dispatched, so it has no output
+contract and no rank-based grant; it holds everything. ANBU and Ne have none because they are code,
+not agents. That leaves 3 of the 7 ranks staffed by archetypes, which is the honest shape: the
+middle of the hierarchy is where delegation actually happens.
 
 **Model assignment heuristic:** cheap/fast model for mechanical lookup (≤3 tool calls); mid model
 for reasoning plus multi-tool orchestration; strong model for authoring, judging and design.
 Pick the **role first** — it pins both the tool scope and the model.
+
+> **On the roster numbers quoted throughout this document.** They *do* reconcile, and the
+> reconciliation is worth following because it is exactly the kind of thing that looks like an
+> inconsistency and is not: **47 records − 1 orchestrator = 46 dispatchable = 16 active + 30 idle.**
+> The 47th is the orchestrator itself, which §14.3 excludes from active/idle by design.
+>
+> The one figure that genuinely does **not** close is in §15-F: 30 idle agents, later split as "3
+> hand-written + 23 plugin-owned" = **26**. Those are snapshots taken on different dates, so the gap
+> is drift, not arithmetic — flagged here rather than silently reconciled. Treat every roster number
+> in this document as *shape*, and check your own census against your own roster.
 
 ### 3.2 Pin the alias, not the version ID
 
@@ -297,6 +349,147 @@ was not empty.
 Give every parallel writer its **own** output file and concatenate afterwards. If a shared file is
 truly unavoidable, require each agent to report the line count before and after.
 
+
+### 4.5 Lifecycle — one dispatch, end to end
+
+Everything after this section is organized by component. This section is the spine that connects
+them. If you read only one section before building, read this one.
+
+### 4.5.1 The trace
+
+```
+USER PROMPT
+   │
+   ├─▶ [router]                    UserPromptSubmit · injects the routing table into context
+   │                               non-blocking. Its documented failure (a nudge alone does not
+   │                               change behaviour) is WHY the gates below block instead.
+   │
+   ▼
+ORCHESTRATOR decides: delegable? (§4.1 / §4.2)
+   │
+   ├── NO ──▶ works inline ──▶ [delegation-check] PreToolUse on read/shell/search
+   │                              │
+   │                              ├─ allowed  → logs `passed`  → tool runs
+   │                              ├─ blocked  → logs `blocked` → exit 2, stderr to model
+   │                              │             model must delegate or use the escape hatch
+   │                              └─ escaped  → logs `overridden` + the stated reason
+   │
+   └── YES ─▶ dispatch call issued, harness assigns tool_use_id = MISSION ID
+                │
+                ▼
+         [brief-gate]  PreToolUse on the dispatch tool
+                │  reads lessons for THIS agent (§11)
+                │  ├─ lesson unaddressed → logs `blocked` → exit 2, prints the lesson
+                │  │                        orchestrator REWRITES the briefing, re-dispatches
+                │  │                        ⚠ the re-dispatch gets a NEW tool_use_id
+                │  ├─ `lesson-ok:` present → logs `overridden` + reason
+                │  └─ all addressed        → logs `passed`
+                │
+                └─▶ writes ledger row  { phase: "dispatched", missionId, agent }
+                          ▲
+                          └── THIS is the ledger's first writer. It is the brief-gate, not
+                              judge.mjs — the gate is simply the only component guaranteed to
+                              fire on every dispatch, so it carries the ledger write as a
+                              secondary duty. State this explicitly or the denominator in
+                              §7.6 has no producer.
+                │
+                ▼
+         SUBAGENT RUNS  — exempt from delegation-check (§5.5): it IS the delegation target
+                │          not exempt from brief-gate (nested dispatches are recorded)
+                ▼
+         RETURN ARRIVES
+                │
+         [judge-return]  PostToolUse on the dispatch tool
+                │  ├─ writes ledger row { phase: "returned", missionId, agent }
+                │  └─ injects the judgement prompt (§7.8) · logs `intervened`, never `blocked`
+                │
+                │  ⚠ SYNCHRONOUS RETURNS ONLY. For a background dispatch this fires on the
+                │    LAUNCH, not the arrival — see §15-E. The behaviour rule carries it alone.
+                ▼
+         [patch-watch]  PostToolUse on edit/write — fires only if the turn edited a file.
+                │  appends the touched paths to the pending-changes log. Telemetry, never blocks.
+                │  Its consumer is doctor check 3a at session close (§5.7).
+                ▼
+         ORCHESTRATOR samples ONE load-bearing claim (§7.3)  ← the fold (§7.5)
+                │
+                ▼
+         emits a verdict line, then records it:
+              node judge.mjs <missionId> <verdict>
+                └─▶ writes ledger row { phase: "judged", missionId, verdict }
+
+         ⚠ TWO VERDICT CHANNELS. The spoken verdict line and the recorded one are different
+           acts. A verdict emitted in the transcript but never typed into judge.mjs is
+           INVISIBLE to coverage. That gap is a large part of why measured coverage is low
+           (§15-B) — say so rather than letting the number look like negligence.
+                │
+                ▼
+   IF the verdict is MENOR or MATERIAL:
+         author a lesson (§11.0) ──▶ lessons file, keyed by agent
+                                      └─▶ the brief-gate above will block the NEXT dispatch
+                                          of that agent until the briefing addresses it.
+                                          THIS is the loop closing. It is a manual write.
+                │
+SESSION CLOSE
+   ├─▶ [doctor --quiet]  Stop event · REPORTS a blocker (exit 1) if an agent has a defect
+   │                     verdict and no active lesson. Exit 1 is not exit 2 — it surfaces,
+   │                     it does not veto. See the honesty note in §11.0.
+   └─▶ [watchdog --alert] next SessionStart · reports silent, bypassed or degraded gates
+```
+
+### 4.5.2 Intra-turn ordering, stated once
+
+Within a single turn the order is fixed by the harness event model, not by the components:
+
+```
+UserPromptSubmit → (per tool call) PreToolUse → tool executes → PostToolUse → … → Stop
+```
+
+Consequences worth writing down, because they are not obvious:
+
+- `router` fires **once per user turn**; the gates fire **once per tool call**. A turn with
+  twelve tool calls fires the router once and `delegation-check` twelve times.
+- The vault gate's per-turn scan (§5.3) resets on the next real user message, **not** on each
+  tool call — which is why tool results must not be mistaken for turn boundaries.
+- `judge-return` and the vault gate never interact: they bind to different events on different
+  tools. There is no ordering hazard between them.
+
+### 4.5.3 Cases the happy path hides
+
+| Case | What happens | Why it matters |
+|---|---|---|
+| **Dispatch blocked by brief-gate** | A `dispatched` row may already exist for the blocked call. The re-dispatch gets a **new** `tool_use_id`. | Orphan `dispatched` rows with no `returned` accumulate. They are correctly excluded from `eligible` (§7.6), so coverage stays honest — but the mission count inflates. Decide this deliberately; do not discover it. |
+| **Ledger rotation** | The ledger caps at 2000 lines, rotating oldest-first. | Rotation can drop a `dispatched`/`returned` pair while keeping a later `judged` row, making coverage non-reconcilable. Either window the coverage query or fold before rotating. |
+| **Background dispatch** | `judge-return` fires at launch (§15-E). | The injection lands before the return exists. Judgement still has to happen; nothing reminds you. |
+| **Hook crashes** | Fails open, logs `error`. | The call proceeds ungated. Only the watchdog surfaces it (§6.3). |
+| **Nested dispatch** | `delegation-check` exempts it; `brief-gate` records it as `nested`. | Lessons still apply one level down — that asymmetry is deliberate (§5.5). |
+
+### 4.5.4 Artifact inventory
+
+Every file the running system touches, in one place, because the component sections each mention
+their own and none lists them together.
+
+| Path | Written by | Read by | Bounded? |
+|---|---|---|---|
+| `~/.agent-graph/guard-log.jsonl` | every gate, one line per firing | `watchdog.mjs` | ❌ no rotation — read-capped at 20k lines only |
+| `~/.agent-graph/mission-ledger.jsonl` | `brief-gate`, `judge-return`, `judge.mjs` | `judge.mjs`, `quality.mjs` | ✅ 2000 lines, mode `0600` |
+| `~/.agent-graph/lessons.json` | **a human, by hand** (§11.0) | `brief-gate`, `doctor.mjs` | n/a |
+| `~/.agent-graph/receipts.md` | a human, by hand | `doctor.mjs`, `quality.mjs` | n/a |
+| `<vault>/reliability-log.md` — per-agent verdicts **with the finding in prose** (§7.4.1) | a human, by hand | `doctor.mjs` check 6a, `quality.mjs` | append-only, never rewritten |
+| `~/.agent-graph/patch-notes.json` — **this is "the changelog"** referred to elsewhere | a human, by hand | `doctor.mjs` (checks 3a/3b) | n/a |
+| `~/.agent-graph/pending-changes.jsonl` | **`patch-watch`, automatically** (§5.7) | `doctor.mjs` check 3a | ⚠️ bound it — paths only, mode `0600` |
+| `<vault>/*.md` + index | a human / the orchestrator | `vault.mjs` and everything downstream | index capped at 24 KB (§14.5) |
+| `trace.json` · `mine.json` · `metrics.json` | their own scripts | the dashboard, `roster.mjs` | derived — safe to delete and regenerate |
+
+> **The four by-hand rows are the system:** lessons, receipts, patch-notes, and the vault. Everything
+> else is either telemetry a hook writes or a derived file a script regenerates. If you automate one
+> of the four you will have built a different system than this one — those four are exactly where
+> judgement enters, and judgement is the thing that cannot be generated.
+>
+> Note the split this makes visible: `pending-changes.jsonl` is written **by a hook** and read by the
+> doctor, whereas `patch-notes.json` is written **by you**. The doctor's job is to compare them —
+> what the session *touched* against what you *chose to record* — so collapsing them would remove
+> the only check that catches an undocumented change.
+
 ---
 
 ## §5 · The guardrail layer (ANBU)
@@ -324,11 +517,24 @@ judgment at the pause.**
 - exit code 0 = allow
 - PostToolUse can inject context via stdout
 - `tool_use_id` is **stable across the Pre and Post events of the same call** — this is what makes
-  the mission ledger possible (§7.4)
+  the mission ledger possible (§7.6)
 - the transcript is JSONL, and tool results appear as `user`-role entries containing
   `tool_result` blocks
 
 ### 5.2 The delegation gate — complete logic
+
+**Bind it to these tools.** The matcher is a regex over the harness's tool name; substitute your
+harness's own identifiers:
+
+| Gate | Matcher | Fields it reads from `tool_input` |
+|---|---|---|
+| `delegation-check` | `Read\|Bash\|Grep` | `file_path`, `limit`, `offset` · `command` · `output_mode`, `head_limit` |
+| `brief-gate` | `Agent\|Task` | `subagent_type`, `prompt` |
+| `judge-return` | `Agent\|Task` | reads `tool_response`, not `tool_input` |
+
+Throughout the code below: `tool = d.tool_name`, `ti = d.tool_input`, `cmd = ti.command`,
+`fp = ti.file_path`, `prompt = ti.prompt`, `agent = ti.subagent_type` — all read off the stdin
+JSON described in §5.1.
 
 Every terminal path logs to the watchdog **before** exiting.
 
@@ -371,18 +577,55 @@ If inline is genuinely necessary (≤3 calls / no agent fits), re-run with
 
 #### Branch B — file reads, four sub-gates in order
 
-1. **Bounded read** → allow.
-2. **No path** → allow. **Binary/visual** (`png|jpe?g|gif|webp|bmp|svg|pdf|ico|heic`) → allow;
-   visual content is not text bloat.
-3. **Vault gate** (see 5.3).
-4. **Size**: `> 60000` bytes → block. **Line count**: `> 800` lines → block. A stat/read failure
-   → allow (the target may be a file about to be written).
+```js
+if (ti.limit) allow('bounded');                       // 1. see the warning below
+if (!fp) allow('no-path');                            // 2.
+if (/\.(png|jpe?g|gif|webp|bmp|svg|pdf|ico|heic)$/i.test(fp)) allow('visual');
+if (isVaultRead(fp) && fs.existsSync(fp) && !briefed) block(VAULT_MSG);   // 3. see §5.3
+let st; try { st = fs.statSync(fp); } catch { allow('nonexistent'); }     // 4. Write target etc.
+if (st.size > 60000) block(SIZE_MSG);
+let lines; try { lines = fs.readFileSync(fp,'utf8').split('\n').length; } catch { allow('unreadable'); }
+if (lines > 800) block(LINES_MSG);
+```
+
+> **⚠ Sub-gate 1 disarms on `limit` ALONE.** `offset` without `limit` does **not** disarm it,
+> even though the block messages say "offset+limit" (§15-J logs this as a real defect: a gate whose
+> message misdescribes its own mechanism). Implement `limit`, and either fix your messages or fix
+> the condition — but know which one you chose.
+
+The three remaining block messages, verbatim — **in a fail-closed gate the message IS the entire
+user-facing behaviour**, so an unspecified message is an unspecified gate:
+
+```
+SIZE_MSG:
+🧭 DELEGATION GATE — unbounded read of a large file (${st.size} bytes) floods MAIN context.
+Delegate (sweeper / digest archetype) OR pass offset+limit to read only the range you need.
+
+LINES_MSG:
+🧭 DELEGATION GATE — unbounded read of a large file (${lines} lines) floods MAIN context.
+Delegate (sweeper / digest archetype) OR pass offset+limit to read only the range you need.
+
+GREP_MSG:
+🧭 DELEGATION GATE — broad content search (output_mode:content, no head_limit) can dump many
+lines into MAIN context. Delegate → locator archetype, OR narrow it: add head_limit, or use
+output_mode:"files_with_matches"/"count".
+
+VAULT_MSG:   ← the fail-closed gate. Its message is the ONLY thing the model sees, so it must
+             name both remedies and say why the read is being refused at all.
+🧭 DELEGATION GATE — unbounded read of a MEMORY VAULT file. Reading whole memory files to
+build a status/WIP picture is the documented drift.
+Pick one:
+  • dispatch a digest archetype (state recall → digest), or
+  • pass a bounded range and read only what you need — if a locator already returned a
+    file:line table, USE those lines instead of re-reading the file whole (that exact
+    delegate-then-re-read-inline pattern is what made this gate necessary).
+```
 
 #### Branch C — structured search
 
 ```js
-const contentMode = input.output_mode === 'content';
-const noCap       = input.head_limit == null;
+const contentMode = ti.output_mode === 'content';
+const noCap       = ti.head_limit == null;
 if (contentMode && noCap) block(/* narrow it: add head_limit, or switch output_mode */);
 ```
 
@@ -422,6 +665,18 @@ const isVaultRead   = fp => VAULT_RE.test(fp) && /\.md$/i.test(fp);
 The `null` case emits a `degraded` telemetry record, computed for **every** qualifying read (not
 just vault reads), because v1 conflated "could not check" with "not briefed" and reported it as a
 normal block.
+
+Two points the code makes but prose usually leaves implicit — state them or a reimplementer guesses:
+
+- **`degraded` is a telemetry action, not a block.** On a non-vault read the record is written and
+  the read proceeds; only `isVaultRead(fp)` reaches the block. The scan runs unconditionally so
+  that "the turn context was unreadable" is visible as its own state rather than being discovered
+  only when it happens to coincide with a vault read.
+- **The vault gate's escape hatch is sub-gate 1, and nothing else.** There is no `inline-ok:` path
+  for reads. Because `if (ti.limit) allow()` runs *before* the vault check, passing a bounded range
+  is the escape — which is what makes fail-closed defensible: a false block costs one retry with a
+  `limit`, never a wedged workflow. If you reorder those sub-gates you silently remove the escape
+  hatch and the fail-closed argument collapses with it.
 
 ### 5.4 Fail policy, per branch
 
@@ -478,6 +733,36 @@ one lexical regex per lesson, which produced false passes when a word appeared b
 false blocks when the briefing addressed the point in other words.
 
 Escape hatch: `lesson-ok: <reason>` in the prompt. The reason is logged.
+
+
+### 5.7 The two non-blocking guardrails
+
+Both are listed in §5.1 and neither blocks anything. Specified here so they are not mistaken for
+decoration.
+
+**`router` — UserPromptSubmit.** Prints the delegation routing table (archetype → trigger) into
+context, once per user turn. It exists to make the *choice* visible at the moment the decision is
+made, not to enforce it.
+
+> **Its documented failure is the reason the blocking gates exist.** Measured: a per-turn text
+> reminder alone did **not** change behaviour — the same drift recurred twice in one session, once
+> caught by the human rather than by the system. Keep the router (it costs nothing and makes the
+> roster discoverable) but do not count it as a control. This is the cleanest example in the whole
+> apparatus of the difference between **salience** and **enforcement**.
+
+**`patch-watch` — PostToolUse on edit/write.** Appends the path of every file the session modified
+to a pending-changes log. Pure telemetry: no gate, no injection.
+
+Its consumer is what makes it worth having: **doctor check 3a** compares that log against the
+changelog and warns about files that were changed without being recorded. Without it, "what did I
+touch this session?" is answerable only by reading the transcript.
+
+Same privacy rule as the mission ledger (§7.6): **paths only — no diffs, no content, no prompt
+text.** A telemetry file nobody reads still leaks. Bound it and set restrictive file permissions.
+
+> Note the asymmetry with §5.5: `patch-watch` does **not** check `transcript_path`, so it records
+> subagent edits too. That is intentional — a `bounded-editor`'s changes are exactly the ones you
+> most want in the pending-changes log, because you did not type them yourself.
 
 ---
 
@@ -635,6 +920,41 @@ Kept explicit so it can be revised against real counts; *without a threshold the
 decorative.* Authority split: re-briefing belongs to the orchestrator; changing a model or retiring
 an agent belongs to the Daimyō.
 
+### 7.4.1 The reliability log — why it is NOT the mission ledger
+
+Two records, deliberately not merged, because they answer different questions:
+
+| | Mission ledger (§7.6) | Reliability log |
+|---|---|---|
+| Shape | JSONL, one row per phase | markdown table, append-only |
+| Carries | `{ missionId, agent, phase, verdict }` | date · agent · verdict · **the finding, in prose** |
+| Answers | *what fraction of returns did I judge?* | *what was actually wrong, and has it happened before?* |
+| Read by | the coverage calculation | you, and the doctor's lost-learning check |
+| Privacy | no paths, no prompt text (bounded, `0600`) | prose — so write findings, never payloads |
+
+```markdown
+| date | agent | verdict | finding |
+|---|---|---|---|
+| 2026-08-31 | `locator` | **DEFEITO-MATERIAL** (1/2) | shape: `generated-vs-generator` — reported
+hits in the built artifact and missed the generator that produces them. Accepting it would have let
+the next regeneration silently revert the edit |
+```
+
+Conventions that make it usable a month later:
+
+- **Verdict bolded; `*not verified*` in italics and counted as nothing.** An unchecked return must
+  not read as a pass.
+- **`(1/2)` tracks progress toward the two-MATERIAL threshold** (§7.4). Without the counter the
+  threshold is decorative.
+- **Name the defect shape** (`shape: <lesson-id>`) so the log and the lessons file (§11) join on a
+  slug rather than on your memory.
+- **Append, never rewrite.** The value is the accrual; editing history destroys the only evidence
+  that a lesson did or did not hold.
+
+> **Why both.** The ledger gives verdicts a *denominator*; the log gives them *content*. Merge them
+> and you get either a JSONL nobody reads prose in, or a markdown table no script can count. The
+> cost of keeping both is one extra append per defect.
+
 ### 7.5 Where the fold is
 
 > Between **receiving** the report and **using** it. If a report goes straight into a document, an
@@ -699,8 +1019,13 @@ says so about itself.
 [if the body contains a negative claim: "does not exist" / "no such" / "zero" / "absent"]
    ⚠️ contains a NEGATIVE claim — cheap to assert, expensive to get wrong. Confirm where it looked.
 Sample 1 load-bearing claim (whatever supports what you are about to write or record).
-Then emit: Verdict: <agent> — OK | DEFEITO-MENOR | DEFEITO-MATERIAL
+Then emit: Verdict: <agent> — OK | DEFEITO-MENOR | DEFEITO-MATERIAL | NAO_VERIFICADO
 ```
+
+> **`NAO_VERIFICADO` must appear in this list.** §7.4 makes "not verified ≠ OK" load-bearing and the
+> verdict CLI accepts the token — but if the one instrument that actually *elicits* verdicts omits
+> it, the only way to comply under time pressure is to pick a real verdict you did not earn. The
+> escape state has to exist at the moment of choosing, not only in the vocabulary that documents it.
 
 Two content detectors drive the conditional warnings:
 
@@ -877,7 +1202,32 @@ vocabularies will drift within a month.
 | claim manifest | `agent-only` / `hokage-sample` / `unverifiable` | provavel / confirmado / indeterminado |
 | investigator | `CONFIRMED` / `HYPOTHESIS` | confirmado / suposicao **with a named confirmation step** |
 | quality indicators | `observed` / `partial` / `unknown` | confirmado / provavel / indeterminado |
-| memory Q3 | verified / inferred / reported | confirmado / suposicao / provavel |
+| memory Q3 (§8.2) | verified / inferred / reported | confirmado / suposicao / provavel |
+| **guardrail actions (§6.2)** | `blocked` `intervened` `passed` | *not truth claims* — these describe what the gate DID, not what is true. Deliberately outside the axis |
+| | `overridden` | *not a truth claim*; carries a reason that is itself `suposicao` until checked |
+| | `degraded` / `error` | **indeterminado** — the check did not complete |
+| **inline verdicts (§7.4)** | `OK` | **provavel** — a sampled check, self-certified, so capped by §9.2 |
+| | `DEFEITO-MENOR` / `DEFEITO-MATERIAL` | **refutado** *for the specific claim that failed* — evidence contradicted it |
+| | `NAO_VERIFICADO` | **indeterminado** — explicitly not `suposicao`: someone looked and stopped |
+| **judge rubric (§10.4)** | `PASS` / `FAIL` | **provavel** — scored against a rubric, not against the world |
+| | `UNSCORABLE` | **indeterminado** |
+| **lessons (§11.1)** | `outcome: unproven` | **suposicao** — no comparable missions yet |
+| | `outcome: holding` / `failed` | **provavel** / **refutado** |
+| **ledger verdicts (§12.2)** | `hit` / `half-hit` | **provavel** — a real-world event, judged by the person who predicted it |
+| | `miss` / `killed` | **refutado** / *withdrawn, not a truth claim* |
+| | `pending` / `treadmill-suspect` | **indeterminado** — the check-by has not arrived, or arrived inconclusive |
+
+> **Two things this expanded table makes visible.** First, several vocabularies are **not truth
+> claims at all** — a gate reporting `blocked` says what happened, not what is true, and forcing it
+> onto the axis would be a category error. Mapping is not the same as flattening. Second, **every
+> self-assessed vocabulary lands at `provavel` or below.** The system contains no mechanism capable
+> of producing `confirmado` about its own behaviour; only an audit against an independent source
+> does. That is not a defect in the mapping — it is the mapping doing its job.
+
+> **Provenance note:** the `claim manifest`, `investigator` and `quality indicators` rows come from
+> the source system's own instruments and are reproduced as *worked examples of the mapping
+> discipline*, not as components this document specifies. If you do not build those instruments,
+> drop those three rows — the discipline is what ports, not the row set.
 
 ---
 
@@ -928,8 +1278,15 @@ binary — because two 7-vs-8 boundary splits were being counted as total disagr
 
 ```
 Input:  { brief, output, type } + the frozen rubric
-Output: { D1..D5: 0|1|2, holistic: 0-10, verdict: PASS|FAIL,
+Output: { D1..D5: 0|1|2|null, holistic: 0-10|null, verdict: PASS|FAIL|UNSCORABLE,
           gateHit: null|"D1"|"D4", rationale: one line }
+
+UNSCORABLE = the case could not be scored (truncated output, missing brief, wrong artifact).
+It is NOT a FAIL. A judge with no way to say "I could not score this" will emit a real
+verdict for an unscorable case, and that verdict enters the agreement statistics as if
+it were a judgement — which silently corrupts the calibration the rubric depends on.
+Count UNSCORABLE cases in their own bucket and report the bucket; never fold them into
+the denominator as failures.
 
 Local only — the judge runs in-harness, never sends case content to an external API.
 Bias mitigation: don't judge a model with itself; a stronger model judging a weaker one is fine;
@@ -954,7 +1311,7 @@ randomize batch order; don't reward verbosity.
   scored after seeing labels (residual anchoring); n=6 is a strong MVP signal, **not** statistical
   proof (full validation ≈15–30 cases).
 - A later drift-check exposed the judge as **OVERFIT to its own lineage: fresh-only agreement
-  dropped to ~60%**, isolated almost entirely to one agent family.
+  dropped to 62% (8/13 fresh)**, isolated almost entirely to one agent family.
 
 **Conclusion, stated plainly: the judge is usable for spot-checks and is NOT gate-ready.** Do not
 wire it into CI. This is the single most important caveat in §10 and it should survive the port.
@@ -965,6 +1322,131 @@ wire it into CI. This is the single most important caveat in §10 and it should 
 
 A subagent has no memory across dispatches. A defect found and not written into the *next*
 briefing is a defect that will recur.
+
+### 11.0 Three learning channels, and the write path
+
+The system learns in three separate places. They are **not** redundant, and confusing them is the
+most common way to put a fact where nothing will ever read it again.
+
+| Channel | Catches | Read by | Decays? |
+|---|---|---|---|
+| **Lessons** (§11) | a **recurring defect in a specific agent's output** | the briefing gate, at dispatch time | yes — `reviewAt`, or it becomes ritual |
+| **Memory vault** (§8) | a **cross-session fact or working preference** that would otherwise be re-derived or re-litigated | recall, at any time | typed: principle / tool-fact / world-state (§8.2 Q4) |
+| **Receipts ledger** (§12) | **apparatus-level treadmill** — building things that move nothing | a human, at `check-by` | no — rows are permanent, verdicts accrue |
+
+The test that separates them: *who needs this next, and when?* A defect the **next dispatch of one
+agent** must not repeat → lesson. A fact **any future session** needs → memory. A judgement about
+**whether the work was worth doing** → receipt. A fact written into the wrong channel is not
+half-useful; it is unreachable.
+
+#### The file is keyed BY AGENT — this is the structural fact everything else depends on
+
+The record schema in §11.1 is what sits *inside* a per-agent array. The top-level keys of the
+lessons file **are agent names**:
+
+```json
+{
+  "_schema": "2.0.0",
+  "_comment": "Per-agent lessons as DATA, enforced at dispatch by the briefing gate.",
+  "_fields": { "…": "the schema documented in §11.1" },
+
+  "Explore":         [ { "id": "quoted-total-not-recomputed", "…": "…" } ],
+  "bounded-editor":  [ { "id": "…" } ],
+  "general-purpose": [ { "id": "…" }, { "id": "…" } ]
+}
+```
+
+Keys beginning with `_` are metadata and must be skipped by consumers. Lookup resolves **the full
+agent id first, then the bare name after any `:` prefix**, so a plugin-namespaced agent
+(`vendor:agent-name`) picks up lessons filed under either form.
+
+Without this nesting, two things elsewhere in the document are unimplementable — state it here or
+they silently break:
+
+- the **per-agent action threshold** (§7.4: two MATERIAL on the same agent), which needs lessons
+  grouped by agent;
+- **doctor check 6a** (§13.2: an agent with a defect verdict and no active lesson is a blocker),
+  which is a join between the reliability log and this file, on agent name.
+
+A flat list of lesson records cannot support either. The agent is the key, not a field.
+
+#### What happens to a defect found on a Tuesday
+
+The write path, stated as plainly as §7.7 states the verdict writer's:
+
+```
+1. You judge a return and it is MENOR or MATERIAL.                     (§7.2, one tool call)
+2. You emit the verdict line, and record it:  node judge.mjs <missionId> <verdict>
+3. You append the verdict to the reliability log.                       ("a defect found and
+                                                                         not recorded is lost")
+4. YOU WRITE THE LESSON BY HAND into the lessons file, under that agent's key.
+5. The next dispatch of that agent is BLOCKED until the briefing addresses it.
+```
+
+> **Step 4 is manual, and it is the only manual link left in the loop.** This is deliberate, for
+> the same reason the verdict writer is a CLI and not a hook (§7.7): a hook can see that a defect
+> *occurred*, never that a **generalizable rule** was extracted from it. Auto-generating a lesson
+> from a verdict would manufacture exactly the content this mechanism exists to make honest.
+>
+> What changed by making it manual-but-surfaced: recording happens **once per defect**, whereas
+> remembering to apply it used to be required on **every dispatch**.
+>
+> **⚠ And be precise about what "enforced" means here, because it is weaker than it sounds.** The
+> doctor reports forgetting step 4 as a *blocker* in its own report and exits 1 — but only a
+> PreToolUse hook can actually veto anything (exit 2, §5.1). Exit 1 **surfaces** the omission at
+> session close; it does not prevent closing. So step 4 is enforced by a **convention plus a loud
+> report**, not by a gate.
+>
+> That distinction matters more than it looks: if you skip step 4 anyway, nothing stops you, and the
+> loop silently reverts to "the lesson lives in my head" — which is the original failure. The
+> mechanism that *is* hard is downstream: once the lesson exists, the briefing gate **does** block
+> (exit 2). Writing it is soft; applying it is hard. Do not let the word "blocker" in a report
+> convince you otherwise.
+
+Practical authoring rules, learned the hard way:
+
+- **`id`** is a stable kebab-case slug naming the *defect shape*, not the incident
+  (`generated-vs-generator`, not `friday-graph-bug`). The slug is what a future reader greps.
+- **`sourceJudgmentId`** — there is no separate judgement id in this system. Use
+  `<date>/<short-task-slug>`, and record the `missionId` in the reliability-log row instead. If
+  you later want true provenance, the honest fix is to make `judge.mjs` emit an id, **not** to
+  invent one at authoring time.
+- **Write the `requires` concepts, then test the regex against a real briefing** before trusting
+  it — see §11.4. An untested `requires` is a gate that blocks the wrong dispatches.
+
+#### Arbitration when several lessons match
+
+Unscoped lessons apply to every dispatch of their agent, so overlap is normal:
+
+- **All** matching lessons with unmet concepts are reported in one block, not just the first —
+  otherwise fixing one reveals the next and each costs a round trip.
+- Order them **MATERIAL before MENOR**, then oldest first.
+- A single `lesson-ok: <reason>` overrides the whole block, not one lesson. That is a deliberate
+  bluntness: per-lesson overrides invite salami-slicing the gate.
+- If one agent accumulates more than ~3 active lessons, the briefing is carrying too much and the
+  real lever is the agent's definition or model — not a fourth lesson.
+
+#### Honest status of the proving mechanism
+
+`fingerprint`, `recurrence` and `outcome` are **declared but unmechanized** in this system, and the
+document would be lying by omission if it implied otherwise:
+
+| Field | Intent | Reality |
+|---|---|---|
+| `fingerprint` | signature used to detect the same defect recurring | **no component compares it against anything** |
+| `recurrence` | count of repeats after the lesson existed — "the only honest measure that it works" | **nothing increments it**; every record reads 0 |
+| `outcome` | `unproven → holding` once comparable missions exist | **"comparable" is undefined and uncomputed**; every record reads `unproven` |
+
+So the measured claim "7 active lessons, 0 recurrences" is **0 out of 0** — it is not evidence the
+lessons work. Recognizing this is the point: the fields are a *specification of what proof would
+require*, and leaving them empty is more honest than filling them with a number nobody computed.
+
+**What closing this actually needs** (and why it is not built): a comparator that, when a new
+verdict is recorded, matches the defect against active `fingerprint`s of the same agent and
+increments on a hit — plus a definition of "comparable mission" narrow enough to mean something
+(same agent **and** same task kind **and** a briefing that carried the lesson). Until missions of
+that shape exist in volume, the counter would compute a ratio over ~2 events, which §14.6 already
+says is noise wearing a percentage.
 
 ### 11.1 Record schema
 
@@ -1053,6 +1535,102 @@ The fix that worked was *not* more emphasis — the spec already said "mandatory
 third time, the constraint is not specification — three spec attempts will have failed — and the
 next lever is the agent's **model or tooling**, not more words in its definition.
 
+
+### 11.4 Test the lesson before trusting it
+
+A lesson is a regex that blocks work. An untested one is worse than no lesson: it blocks the wrong
+dispatches, you start reaching for `lesson-ok:`, and the gate becomes theatre — the failure mode
+§6.3 measures as bypass rate.
+
+Two failure directions, both real:
+
+- **Too loose** → false blocks. Concrete trap: the matcher applies no word boundaries, so a bare
+  `count` matches inside *ac**count*** and *en**count**er*; `state` matches every "state of the…".
+  Write the boundaries into the pattern yourself.
+- **Too tight** → the lesson never fires and reads as `recurrence: 0`, which looks like success.
+
+Test it as a table of labelled cases, including the **prompt that produced the original defect**
+(it must match) and prompts from dispatches that were fine (they must not):
+
+The real pattern, inlined so this is runnable as printed. Note every alternative is anchored —
+that is the whole point:
+
+```js
+const lesson = {
+  id: "quoted-total-not-recomputed",
+  scope: { taskKinds: [
+    "\\b(digest|resume|status|pending|backlog|tally|summari[sz]e)\\b|\\bcounts?\\b|\\bhow many\\b|\\bcurrent state\\b"
+  ]},
+  requires: [{
+    concept: "recompute totals from the rows, never quote a stated total",
+    any: ["recomput|recount|parse the (column|rows|table)|derive the count|count the rows|from the primitive"]
+  }],
+};
+
+const scope = new RegExp(lesson.scope.taskKinds[0], "i");
+const cases = [
+  ["SHOULD",     "return a COMPACT resume-state digest"],       // the prompt that caused the defect
+  ["SHOULD",     "how many pending rows are in the ledger"],
+  ["SHOULD",     "give me the current state of the backlog"],
+  ["SHOULD NOT", "extract the guardrail hooks, cite file:line"],
+  ["SHOULD NOT", "check the account balance validation logic"], // 'count' inside 'account'
+  ["SHOULD NOT", "find where we encounter the retry path"],     // 'count' inside 'encounter'
+  ["SHOULD NOT", "locate the OrderDocument class definition"],
+];
+for (const [expect, prompt] of cases) {
+  const hit = scope.test(prompt);
+  console.log((expect === "SHOULD") === hit ? "PASS" : "FAIL", expect, "|", prompt);
+}
+
+// Both directions of the requires check — a matcher only tested one way is half-tested:
+const req = new RegExp(lesson.requires[0].any.join("|"), "i");
+console.assert(!req.test("return a digest of pending rows"));            // unmet → gate blocks
+console.assert( req.test("recompute it by parsing the verdict column")); // met   → gate passes
+```
+
+> **The two `SHOULD NOT` substring cases are the ones that matter.** Drop the `\b` anchors and
+> *account* and *encounter* both start matching — the lesson then blocks unrelated dispatches, you
+> start reaching for `lesson-ok:`, and within a week the gate is theatre. Run this table after every
+> edit to a lesson's regex, not just when you first write it.
+
+### 11.5 Testing the gates themselves
+
+The document's own thesis is that a silent guard is either unnecessary or broken (§1, claim 5). The
+watchdog detects a gate that **never fires** — it cannot detect a gate that fires and permits
+everything. That second failure is invisible by construction, so it needs a deliberate test.
+
+**Test each gate on both sides.** A gate is only validated when you have seen it *block* something
+it should and *pass* something it should not touch:
+
+```bash
+# Should BLOCK (expect exit 2)
+echo '{"tool_name":"Bash","tool_input":{"command":"grep -r foo ."},"transcript_path":"/tmp/t.jsonl"}' \
+  | node delegation-check.mjs; echo "exit=$?"     # expect 2
+
+# Should PASS — bounded read (expect exit 0)
+echo '{"tool_name":"Read","tool_input":{"file_path":"/big.md","limit":50},"transcript_path":"/tmp/t.jsonl"}' \
+  | node delegation-check.mjs; echo "exit=$?"     # expect 0
+
+# Should PASS — the escape hatch, and the reason must be captured, not just accepted
+echo '{"tool_name":"Bash","tool_input":{"command":"grep -r foo . # inline-ok: one-off audit"}}' \
+  | node delegation-check.mjs; echo "exit=$?"     # expect 0, and `overridden` in the guard log
+```
+
+Three properties worth asserting explicitly, because each one has failed in practice:
+
+1. **The subagent exemption works** — feed a `transcript_path` under the subagent directory and
+   confirm the gate allows what it would otherwise block. A gate that accidentally applies to
+   subagents forbids the exact behaviour it exists to force.
+2. **Fail-closed really is closed** — point `transcript_path` at a nonexistent file and confirm the
+   vault gate still blocks (and logs `degraded`), rather than falling open.
+3. **The override is recorded, not merely permitted** — assert the guard log gained an `overridden`
+   row carrying the stated reason. An override that permits without recording is indistinguishable
+   from a gate that was never there.
+
+> Run these after **any** edit to a gate. The whole apparatus rests on gates that block; a gate
+> that silently stopped blocking produces no error, no alert, and no symptom until the drift it
+> prevented has already happened.
+
 ---
 
 ## §12 · Governance — the outward-validation ledger
@@ -1118,6 +1696,18 @@ Why this is genuinely falsifiable, and not self-congratulation:
 
 Note the `check-by` column also accepts a **real-world event** instead of a date ("next session with
 a status question"), and `(n/a)` for a purely inward change.
+
+> **⚠ That tally sums to 18 against a 21-row ledger, and the gap is the lesson.** The three missing
+> rows are not missing verdicts — they are rows whose verdict cell **contains a `|` character**
+> (inline code such as `` `/\bhit\b/i` ``, or a nested table), which defeats naive
+> split-on-pipe column parsing. Reported as-is rather than quietly padded, because this is the
+> document's own §15-J defect reproduced live: *a count taken with a fragile instrument and
+> published without checking that it reconciles.*
+>
+> **What to do in your port:** always print the row count next to the tally so a gap is visible
+> (`18 of 21 rows parsed`), and treat an unparsed row as `indeterminado` (§9), never as absent.
+> A markdown table is a bad database — if the tally matters, either escape pipes on write or keep
+> the verdicts in a sidecar JSONL and render the table from it.
 
 > **⚠ Parser caveat, reproduced because it is the kind of bug that inflates your own score:** the
 > machine parser matches `hit` with `/\bhit\b/i`, which **also matches `half-hit`**, and counts a
@@ -1190,8 +1780,8 @@ unless the name says otherwise.
 | `metrics.mjs` | **Hygiene.** Counts by type, link degree, orphans, broken links, index drift, index byte budget, description quality, staleness → one 0–100 score. | reads vault; **writes only with an explicit `--write`** |
 | `quality.mjs` | **Quality.** Memories against the §8 bar, per-agent verdicts, judgement coverage, the learning axis. | reads vault + logs; stdout |
 | `watchdog.mjs` | **The guards themselves** (§6). | reads guard log + settings |
-| `doctor.mjs` | **"Can I close the session?"** Registration check (§13.1). | read-only; **exit 1 on any blocker** |
-| `validators.mjs` | **Allowlisted verification registry** (§13.2). | code-only assertions |
+| `doctor.mjs` | **"Can I close the session?"** Registration check (§13.2). | read-only; **exit 1 on any blocker** |
+| `validators.mjs` | **Allowlisted verification registry** (§13.3). | code-only assertions |
 | `refresh.mjs` | **Continuous verification.** Re-checks derivable claims instead of auditing episodically. | read-only; reports drift, never edits |
 | `judge.mjs` | **Verdict writer** (§7.7). | appends to the mission ledger |
 | `roster.mjs` | **Roster-as-data + census** (§3). | reads roster + usage telemetry |
@@ -1305,6 +1895,42 @@ generator must validate the artifact it emitted (`new Function(src)` compiles wi
 catches a syntax error in milliseconds) and **refuse to overwrite a working file with a broken
 one**. Two registry validators then assert that those two guards still exist.
 
+
+### 13.5 Operating rhythm — what runs when, and who runs it
+
+A tool with a responsibility and no occasion never runs. Bind what you can to lifecycle events; for
+the rest, name the trigger explicitly — **"as needed" means never.**
+
+| When | What | Bound how |
+|---|---|---|
+| **Session start** | `watchdog --alert` — silent/bypassed/degraded gates | ✅ hook (SessionStart) |
+| | eval backlog nudge — unlabelled runs, silent when empty | ✅ hook (SessionStart) |
+| **Every dispatch** | sample one claim → verdict → `judge.mjs` | ⚠️ behaviour rule + post-return injection |
+| **Every defect verdict** | author the lesson (§11.0 step 4) | ⚠️ manual; *surfaced* at close by doctor 6a (exit 1, not a veto) |
+| **Session close** | `doctor --quiet` — registration blockers | ✅ hook (Stop) |
+| | `judge.mjs --pending` — returned-but-unjudged | ⚠️ **ritual, name it or it dies** |
+| **On demand — triggered, not scheduled** | | |
+| before pruning an agent | `roster.mjs` census | operator question |
+| after editing a gate | §11.5 two-sided gate test | **mandatory**, not optional |
+| after a batch of memory writes | `metrics.mjs` (hygiene) · `quality.mjs` (the bar) | operator question |
+| when a runtime claim smells stale | `refresh.mjs` | ⚠️ named "continuous", nothing makes it continuous |
+| when you need eval cases | `mine.mjs` · `trace.mjs` | operator question |
+| **Weekly-ish, the one that matters** | **adjudicate `check-by` rows** — mark hit/miss against reality | ⚠️ doctor *warns* when a row is overdue; the sitting-down is yours |
+
+**Two rhythms with no owner, called out rather than left implicit:**
+
+- **Index budget.** The always-loaded index is capped at 24 KB and you act at 67% (§14.5). *Who
+  trims, and how:* when the warning fires, cut the **longest pointer lines** to ≤120 bytes — a line
+  is a pointer, not a summary — and move resolved/shipped entries to the archive index (§8.4). Never
+  solve it by deleting memories; the pointer is what makes them findable, and the file is what makes
+  them true.
+- **Curation.** Archiving has no natural trigger, so use one: when a memory's `status` becomes
+  resolved, or when the index crosses its act-line — whichever comes first.
+
+> **`refresh.mjs` is the honest failure of this table.** It is described as continuous verification
+> "instead of episodic audit", and nothing schedules it. Either bind it to session start or stop
+> calling it continuous. Naming that gap is cheaper than letting the word do work the code does not.
+
 ---
 
 ## §14 · How the numbers are computed
@@ -1336,7 +1962,7 @@ numbers will not reconcile.
 ### 14.3 Active / idle
 
 ```js
-const dispatchable = members.filter(m => !m.selfOrchestrator);
+const dispatchable = members.filter(m => !m.selfKage);   // the flag defined in §3
 const active       = dispatchable.filter(m => m.runs > 0);
 ```
 
@@ -1379,6 +2005,70 @@ A rate computed over 2 events ("50% override!") is noise wearing a percentage.
 
 Reproduced in full, because a spec that only lists what works is marketing. Every gap states what
 it is, why it matters, and **what would close it**. All live numbers dated **2026-08-31**.
+
+### 15.0 · Failure-class coverage matrix — what is watching what
+
+The individual gaps below are symptoms. This table is the diagnosis: for each way the system can
+fail, which instrument catches it, and — the column that matters — which classes **nothing**
+catches. Compiled by collecting every uncovered failure the rest of this document mentions only as
+a passing aside.
+
+| Failure class | Caught by | Would falsely report clean | Verdict |
+|---|---|---|---|
+| Context bloat via bulk ops | `delegation-check` branch A/C | — | ✅ covered |
+| Context bloat via whole-vault reads | vault gate (§5.3) | size thresholds — blind to 50–320 line files | ✅ covered, *after* this specific blindness was found |
+| A gate stops firing entirely | watchdog liveness (§6.3) | the gate itself — silence looks like health | ✅ covered |
+| A gate fires but permits everything | **§11.5 two-sided test — manual, on demand** | watchdog liveness (it sees firings, not correctness) | ⚠️ human-only |
+| Subagent output is wrong | orchestrator sample-verify (§7.3) | the return's own formatting; `file:line` disarms scrutiny | ⚠️ human-only, 5.9% applied |
+| Same agent defect recurs | briefing gate (§11) | `recurrence` — declared, unmechanized (§11.0) | ⚠️ gate covers, measurement does not |
+| Apparatus treadmill | receipts ledger (§12) | any internal metric | ⚠️ human-only, at `check-by` |
+| Memory content is FALSE | **nothing** — audit against source only | hygiene score: read 100/100 with ~43 false claims | ❌ **uncovered** (§15-I) |
+| Verdict spoken but never recorded | **nothing** | coverage — it counts records, not judgements | ❌ **uncovered** |
+| Background return never judged | **nothing** — `judge-return` fires at launch | its own `intervened` count (§15-E) | ❌ **uncovered** |
+| Unsupervised agent loop / runaway | **nothing** — the Jounin layer is empty (§2.4) | — | ❌ **uncovered, deliberately** |
+| Editor exceeds its file-count cap | **nothing** — the agent polices itself | the agent's own report | ❌ **uncovered**; self-certification caps at `provavel` (§9.2) |
+| Mission rank declared but ignored | **nothing** — ritual with no telemetry | — | ❌ **uncovered, deliberately**; but note the trigger that would authorize enforcement can never fire, so "deliberate" here is closer to *stuck* than to *chosen* |
+| Model alias silently pinned to an old generation | **nothing** — §3.2: "it never errors, so nothing surfaces the drift" | the agent runs fine on the previous generation | ❌ **uncovered**; closable by grepping recorded model ids after any provider cutover |
+| Ledger rotation makes coverage non-reconcilable | **nothing** — §4.5.3 | coverage keeps returning a plausible number | ❌ **uncovered**; closable by windowing the query or folding before rotation |
+| An `inline-ok:` reason that is stated but hollow | **nothing** — only a *missing* reason is flagged as `unstated` | the override count, which sees a reason and is satisfied | ❌ **uncovered** |
+| A hook crashes mid-check | watchdog `error` action | the tool call itself — it proceeds ungated (fail-open) | ⚠️ detected after the fact, never prevented |
+| Prompt injection via subagent-read content | **nothing** | everything — the text looks like a normal finding | ❌ **uncovered** (see below) |
+
+> **Read the two ❌ patterns.** First: *every* class where the only instrument is the orchestrator
+> judging itself is uncovered in the strict sense — self-certification caps at `provavel` (§9.2),
+> so the system's own doctrine says these are unproven, not safe. Second: two of the uncovered
+> classes are uncovered **on purpose** — the Jounin coordinator layer and mission-rank enforcement —
+> because no trigger has fired. Deliberate absence and unnoticed absence look identical in a table,
+> so the Verdict column marks which is which; that distinction is the whole point of building the
+> matrix rather than a checklist.
+>
+> **And watch the failure mode inside the deliberate ones.** "We will build it when the trigger
+> fires" is only honest if the trigger *can* fire. Mission-rank compliance has no telemetry, so its
+> trigger is unobservable — which makes it indistinguishable from a decision never to build. Where
+> you defer on a trigger, check that something is actually watching for it, or write down that
+> nothing is.
+
+#### The untrusted-input boundary, stated because the document otherwise ignores it
+
+A subagent's return is **text the orchestrator did not write**, and its content is derived from
+files, tool output and web pages the subagent read. It then flows into: the post-return regexes
+(§7.8), the orchestrator's reasoning, and frequently a permanent record. The escape hatches
+`inline-ok:` and `lesson-ok:` are plain-text tokens matched against that same channel.
+
+Consequences to design around, none of which this system currently handles:
+
+- Content a subagent read can contain text shaped like instructions, or like the escape tokens.
+  **Treat every return as data to be judged, never as instructions to be followed** — which is,
+  conveniently, exactly what §7 already demands for correctness reasons.
+- The gates match tokens on the **main thread's own** tool inputs, not on returned content. Keep
+  that boundary: if a gate ever reads subagent-returned text to decide whether to block, the gate
+  becomes controllable by whatever that agent read.
+- The ledger's privacy rule (no prompt text, no paths, no session ids — §7.6) also limits the blast
+  radius here: content that is never persisted cannot be replayed out of the logs later.
+
+This is a boundary statement, not a threat model. A real one would enumerate the trust levels of
+each input channel and is **not** attempted here — flagged as absent rather than sketched, because
+a half-specified security model reads as coverage and is worse than an acknowledged gap.
 
 ### A · The blind judge is overfit — NOT gate-ready
 
@@ -1501,7 +2191,7 @@ is gap **D**, still unread.
 ### J · Small defects found while writing this document
 
 - **The read gate's escape hatch does not match its own message.** Four block messages instruct the
-  reader to "pass offset+limit", but the code disarms on `limit` alone: `if (input.limit) allow();`.
+  reader to "pass offset+limit", but the code disarms on `limit` alone: `if (ti.limit) allow();`.
   Passing only `offset` does **not** disarm the gate. Harmless in practice, but it is a message that
   lies about its own mechanism — precisely the class this system claims to hunt.
 - **A count taken from line numbers instead of table rows** produced "11 pending" where the ledger
@@ -1591,7 +2281,7 @@ DISPATCH        state role + mission rank inline:  "1 Genin [locator] + 1 Chuuni
 
 DON'T DISPATCH  ≤3 tool calls · <5 lines out · already in memory · you're authoring the artifact
 
-ON RETURN       sample ONE load-bearing claim  → Verdict: <agent> — OK | MENOR | MATERIAL
+ON RETURN       sample ONE load-bearing claim  → Verdict: <agent> — OK | MENOR | MATERIAL | NAO_VERIFICADO
                 load-bearing = permanent record · negative claims · ids/hashes/timestamps ·
                 counts with no reproduced line
                 file:line proves the LINE EXISTS, not that it answers your question
