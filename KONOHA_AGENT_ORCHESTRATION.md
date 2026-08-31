@@ -10,18 +10,22 @@
 
 ## ⚠️ READ THIS FIRST — runtime vs reference
 
-**This file is ~123 KB. Do not load it into an agent's context.**
+**This file is well over 100 KB and grows with every revision. Do not load it into an agent's context.**
+
+> Measured 2026-08-31: **138 KB total · 3.6 KB runtime slice**. Dated deliberately — an exact
+> size asserted in a document that keeps growing is stale by the next edit, which happened to this
+> very line twice in one session (§15-J). Date the world-state claim (§8.2 Q4) or state a bound.
 
 That warning is not incidental. §14.5 caps the always-loaded memory index at **24 KB** and acts at
 67% of it; §1 claim 1 is *"context bloat never errors"*. A 123 KB file loaded as standing
-instruction is **~5× the entire index budget** — which would make the specification of the
+instruction is **more than 5× the entire index budget** — which would make the specification of the
 anti-context-bloat system the single largest context consumer in the apparatus. Splitting it costs
 nothing and not splitting it refutes the document.
 
 | Part | What it is | Size | Load it? |
 |---|---|---|---|
-| **§17 + Appendix cheat sheet** | the operating rules an agent needs *while working* | ~2 KB | ✅ **this is the runtime slice** — put it in the agent's standing instructions |
-| **§§1–16** | port documentation: mechanism, thresholds, code, rationale, measured gaps | ~121 KB | ❌ reference. Read it once when building; consult it on demand |
+| **§17 + Appendix cheat sheet** | the operating rules an agent needs *while working* | **3.6 KB** (measured) | ✅ **this is the runtime slice** — put it in the agent's standing instructions |
+| **§§1–16** | port documentation: mechanism, thresholds, code, rationale, measured gaps | everything else | ❌ reference. Read it once when building; consult it on demand |
 | **§15** | measured failures and what nothing watches | — | ❌ reference, but read it before trusting any number here |
 
 **How to use it:** extract §17 and the Appendix into a short standing-instruction file. Keep this
@@ -808,7 +812,7 @@ throws** — the whole body is wrapped so that telemetry can never break the gua
 | `ts` | ISO timestamp |
 | `hook` | which guardrail fired |
 | `tool` | the tool being gated |
-| `action` | validated against the vocabulary below; **anything unrecognised silently becomes `passed`** |
+| `action` | validated against the vocabulary below; **anything unrecognised coerces to `error`, carrying the original string as `reason: unknown-action:<x>`** — see the warning below |
 | `reason` | required when action is `overridden` / `degraded` / `error`, else `null` |
 | `detail` | override motive (≤120 chars), `main`/`nested`, or the error name |
 | `agent` | the dispatched agent, when applicable |
@@ -832,6 +836,30 @@ export const ACTIONS = ['blocked', 'intervened', 'passed', 'overridden', 'degrad
 > A PostToolUse injection logged as `blocked` inflates the blocked-vs-bypass picture with events
 > that never blocked anything.
 
+> **⚠ COERCE UP IN SUSPICION, NEVER DOWN — this cost a real bug, fixed 2026-08-31.** The first
+> version coerced an unrecognised action to **`passed`**, the single most optimistic value in the
+> vocabulary ("healthy silence — proof of liveness"). Two failures compound there, and the second is
+> the one that hides the first:
+>
+> 1. A guardrail emitting a typo'd or renamed action **reads as healthy**.
+> 2. Because §6.3 computes `fired = blocked + intervened + passed + overridden`, that coerced event
+>    **inflates the bypass denominator and LOWERS the hook's own override rate** — so the broken hook
+>    simultaneously looks fine *and* quiets the alarm that would have caught it. Inside the component
+>    the entire watch layer depends on.
+>
+> It also contradicted three sibling rules in this same document: an unknown validator id is
+> `degraded`, not `failed` (§13.3); a malformed line is **rejected and reported, never silently
+> skipped** (§13.3); and counting "could not check" as "nothing wrong" is the false-zero pattern
+> (§9.2). The fix coerces to **`error`**, which §6.3 alarms on with **no `MIN_N` floor**, and puts the
+> original string in `reason` so the offending hook is identifiable — a coercion that leaves no trace
+> is the same defect one layer down.
+>
+> **Why `error` and not a new `unclassified` state:** a new action would need the logger, the
+> watchdog and the census updated **in lockstep**, because the census counts actions into a fixed
+> object and **silently drops any key it does not know** — introducing a second silent-drop to fix the
+> first. If unknown actions ever become routine rather than a bug, add the state properly, in all
+> three places at once.
+
 ### 6.3 The three measures
 
 Default window: **14 days**, reading at most the last 20,000 log lines.
@@ -844,6 +872,28 @@ const MIN_N = 20; // below this, rates are noise — do not cry wolf on a handfu
 **Only instrumented guards are alertable.** Third-party hooks are listed for visibility but never
 alerted on — *an alarm that fires every day for something that will never change is how a watchdog
 trains you to ignore it.*
+
+> **⚠ Know the real coverage before trusting the liveness check: 3 instrumented of 13 registered.**
+> The third-party exemption is sound, but in practice the same exemption also covers guardrails you
+> **own** — in the reference system, `patch-watch`, the doctor and the router all log nothing, so the
+> watch cannot tell whether they are alive.
+>
+> The concrete false-zero chain this permits, worth tracing once because every link looks healthy:
+>
+> ```
+> patch-watch dies  →  the pending-changes log stays empty
+>                   →  doctor check 3a compares EMPTY against the changelog
+>                   →  finds no unrecorded edit
+>                   →  reports CLEAN — indistinguishable from a genuinely tidy session
+> ```
+>
+> A guardrail that is silent because it is broken and one that is silent because there was nothing to
+> do produce **the same output**, which is the §9.1 test failing in the watch itself.
+>
+> **Fixing it has a mandatory order:** instrument the hook with the logger FIRST, then add it to the
+> instrumented set. Adding an uninstrumented hook to that set only manufactures a permanent
+> "registered but zero entries" alarm — you would have converted a blind spot into noise, which
+> §6.3's own MIN_N rule exists to prevent.
 
 **(1) Liveness** — cross-check the *registered* hooks (scraped from settings) against the hooks
 *seen firing* in the log. A registered-but-silent instrumented hook is probably broken.
@@ -1010,6 +1060,24 @@ That is the mission id — ephemeral, per-call, and not an identifier of anythin
 **Eligibility rule:** a mission becomes eligible for judgement once it has **returned**.
 Dispatched-but-still-running is not a missing judgement — counting it as one would manufacture a
 denominator that makes coverage look worse than it is.
+
+> **⚠ IN THE REFERENCE SYSTEM THIS RULE IS DEFEATED, AND IT WAS MEASURED, NOT ARGUED.** The `returned`
+> row is written by the post-return hook, which fires on the `PostToolUse` of the **dispatch**. For a
+> background agent that instant *is the launch*, so the row is written while the agent is still
+> running. Empirically: **all 12 missions in the ledger showed `dispatched → returned` in 0.4–1.0
+> seconds, against agents that ran 170–310 seconds.**
+>
+> So `eligible` has never meant "returned" — it means "launched" — and the rule above has been
+> contradicted by its own implementation since the first row was written. This is **strictly worse
+> than the framing in §15-E**, which treats the background gap as a *lost injection* (a numerator
+> problem). It corrupts the **denominator**: every dispatched mission becomes instantly eligible, so
+> coverage reads lower than reality and the very fabrication this rule forbids is what the code does.
+>
+> **If you implement only one thing from this section, implement the detection:** the post-return
+> hook must recognise a launch confirmation and write nothing. The direction of the error is the
+> reason it was left unfixed in the reference system — reading *worse* than reality is the safe
+> direction for a measurement bug, and a pessimistic denominator can wait behind an optimistic one
+> (§6.2). Do not mistake "deferred" for "acceptable".
 
 ```
 coverage = judged / eligible      // null when eligible === 0, never 0
@@ -2039,7 +2107,7 @@ a passing aside.
 |---|---|---|---|
 | Context bloat via bulk ops | `delegation-check` branch A/C | — | ✅ covered |
 | Context bloat via whole-vault reads | vault gate (§5.3) | size thresholds — blind to 50–320 line files | ✅ covered, *after* this specific blindness was found |
-| A gate stops firing entirely | watchdog liveness (§6.3) | the gate itself — silence looks like health | ✅ covered |
+| A gate stops firing entirely | watchdog liveness (§6.3) — **but only for the 3 instrumented guardrails of 13 registered** | the gate itself (silence looks like health) AND the watchdog's own scope: an uninstrumented guardrail is invisible to it | ⚠️ **partial — ✅ for 3 of 13, ❌ for the rest, including `patch-watch`, whose consumer then reports a false clean** |
 | A gate fires but permits everything | **§11.5 two-sided test — manual, on demand** | watchdog liveness (it sees firings, not correctness) | ⚠️ human-only |
 | Subagent output is wrong | orchestrator sample-verify (§7.3) | the return's own formatting; `file:line` disarms scrutiny | ⚠️ human-only, 5.9% applied |
 | Same agent defect recurs | briefing gate (§11) | `recurrence` — declared, unmechanized (§11.0) | ⚠️ gate covers, measurement does not |
@@ -2181,18 +2249,84 @@ silently** — the memory simply never surfaces, and nothing reports it.
 > because they happened to contain `CWE-1390`, `SSHIP-4255` and `BigQueue`. The three that still
 > fail are the ones whose subject has no identifier to carry.
 
+> **⚠ THIRD INSTANCE — Q3 has the same disease, found by predicting it (2026-08-31).** The Q1 finding
+> generated a prediction: if claim-type blindness is a *class* rather than one bug, the sibling
+> criterion should show it too. Q3 (provenance) was at 67%, the second lowest. It does.
+>
+> ```js
+> const q3 = /verified|verificad|confirmed|confirmad|inferred|inferid|unverified|não verificad|✅|⚠️/i
+> ```
+>
+> The doctrine defines **three** provenance values, mapped onto the truth scale (§9.3):
+> `verificado → confirmado`, `inferido → suposicao`, **`relatado → provavel`**. The regex sees the
+> first two and is **blind to the third** — and `relatado` ("the user said it, on this date") is
+> precisely the correct provenance for a `preference` claim. **A memory can state its provenance
+> perfectly, in the exact term the doctrine assigns to its claim type, and still fail.**
+> Pass rate by type: **behaviour 86% · runtime 71% · principle 37% · preference 36%** — the same
+> shape as Q1, from a different mechanism.
+>
+> **The three instances together give the actual law, which is sharper than "narrowly framed fix".**
+> Q5 v1 demanded a code citation from every memory. Q1 demands an identifier-shaped token. Q3
+> enumerates its own vocabulary and drops the one value belonging to the claim types that score
+> lowest. Nobody was careless; **each instrument encodes the claim type its author had in mind.** Q5's
+> author was thinking about code, Q1's about code, Q3's about *verification* rather than *report*.
+> That is why fixing Q5 did not fix Q1 — the repair was framed as being about source authority, so
+> the class was never named and two siblings kept the bug.
+>
+> **The check that would have caught all three costs one query:** break every criterion down by claim
+> type and look for a type that cannot pass. Q4 is immune by construction, because it types the claim
+> explicitly instead of inferring the type from the text — which is the design answer, not just the
+> test.
+
 **The sharpest instance:** 8 memories score ≤2/5, and one of them is the **governing
 outward-validation rule itself, at 1/5.** The rule that authorizes every other change is among the
 least recallable files in the vault.
 
 ### D · The claim manifest may be pure bureaucracy
 
-106 records written; **no audit has consumed them since.** Its own declared falsifier:
+**▶ CLOSED 2026-08-31 — BY DELETION, which is what its own falsifier prescribed.** Kept in full
+rather than removed, because how it closed is more instructive than the gap was.
+
+106 records were written and no audit ever consumed them. The declared falsifier:
 
 > If the manifest is written once and never read on the next audit, it is bureaucracy — and the
 > reply is to **delete it**, not to add fields.
 
-**Closes when:** the next audit *starts from* the manifest instead of from scratch.
+So it was deleted, along with the refresh tool whose only input it was.
+
+**But the falsifier was itself weak, and finding out why is the real lesson.** "Never read" was
+mechanically **false**: the dashboard generator reads the manifest and runs on every session start,
+so it was machine-read hundreds of times. It was read by a *program* and never by a *person*, and
+the reading produced a rendered panel, never a decision.
+
+> **"Is it read?" is a data-flow question. "Did it ever change what anyone did?" is a consequence
+> question.** The falsifier was phrased as the first and meant the second, so it could be satisfied
+> while the property it cared about stayed false — a ritual that outputs green, by §9.1. **Falsifiers
+> are instruments too, and they lie by omission the same way.**
+
+**Root cause was position, not discipline.** What it held — that 97 of 106 corrected claims rested on
+agent verification alone — matters *at the moment you rely on a memory*, but it lived in a sidecar
+while recall delivers the memory. Consulting it required a second deliberate act, separated in time
+and place from the doubt.
+
+**Generalizable law:** *a record stored somewhere other than where the decision happens will not
+inform it.* Colocate it, or accept that it rots. Contrast the receipts ledger, which **is** consulted:
+§12.1 gates the work on writing a row and the doctor warns when one goes overdue — two enforcement
+points **at** the moment of decision. The manifest had none.
+
+**Two things already occupy the right position and made it redundant:**
+
+- **Q3 (§8.2)** asks the same question — *how was this claim established?* — **inline in the memory**,
+  where recall delivers it. The manifest was a sidecar duplicate of a criterion that already existed.
+- **Version control** carries `before`/`after` for every file, permanently, answerable with
+  `git log -p` at the exact moment you ask. The manifest's `before`/`after` fields were hand-rolled
+  version control for a directory that had none — which is why they felt necessary and why they were
+  never going to work.
+
+**Not an isolated case.** The mining, trace and graph tools run every session into the same dashboard:
+machine-read, decision-free unless someone opens the app. Six of twelve tools have "operator
+question" as their trigger, which is the same as having none (§13.5). The manifest was not the
+disease; it was the case that got caught.
 
 ### E · The post-return judge misses background returns
 
