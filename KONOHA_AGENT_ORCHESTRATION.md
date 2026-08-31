@@ -2152,6 +2152,35 @@ demand the source authoritative *for the claim type* (§8.3). Q1 is essentially 
 **Why it matters:** roughly half the vault would not be found by a future search, **and Q1 fails
 silently** — the memory simply never surfaces, and nothing reports it.
 
+> **⚠ 2026-08-31 — the Q1 number is measuring the wrong thing, and the defect is one this system
+> already fixed once.** The heuristic is
+> `` /`|\.(kt|go|ts|js|yml|json)|[a-z]+_[a-z]+|[A-Z][a-z]+[A-Z]|\d{3}\b/.test(desc) && desc.length >= 80 ``
+> — it detects whether a description contains an **identifier-shaped token** (backtick, file
+> extension, snake_case, CamelCase, three digits), which is a *proxy* for findability, not
+> findability.
+>
+> Measured by claim type: **behaviour 65% · runtime 65% · principle 33% · preference 27%.** Memories
+> about code and infrastructure naturally carry identifiers; memories about *how to work* do not.
+> **38 of 120 memories are being scored against a test they cannot pass by construction.**
+>
+> This is precisely the **Q5 v1 defect** (§8.3): Q5 demanded a `file.kt:123` citation from every
+> memory and thereby "mismeasured roughly half the vault: a user preference is not grounded in
+> code." Q5 was fixed by making the expected source a function of the claim type. **Q1 was never
+> given the same treatment**, because the Q5 fix was framed as being about *source authority*
+> rather than about *claim-type blindness as a class* — so the sibling criterion kept the bug.
+>
+> **Consequence for anyone acting on these numbers:** do not optimize Q1. Reaching 100% would mean
+> stuffing identifier-shaped tokens into descriptions that have no identifiers, which improves the
+> score and not the recall — gaming, by the definition this document uses everywhere else. Judge a
+> description by *"are these the words I would actually type when I have this problem?"* and treat
+> the score as a weak signal for two of the four claim types.
+>
+> Empirical note from the session that found this: six worst-scoring descriptions were rewritten as
+> symptom-plus-proper-noun recall keys. All six read as materially more findable (author's judgement,
+> therefore capped at `provavel` per §9.2); **the score moved on three**, and those three passed
+> because they happened to contain `CWE-1390`, `SSHIP-4255` and `BigQueue`. The three that still
+> fail are the ones whose subject has no identifier to carry.
+
 **The sharpest instance:** 8 memories score ≤2/5, and one of them is the **governing
 outward-validation rule itself, at 1/5.** The rule that authorizes every other change is among the
 least recallable files in the vault.
