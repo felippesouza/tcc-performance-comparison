@@ -8,6 +8,28 @@
 
 ---
 
+## ⚠️ READ THIS FIRST — runtime vs reference
+
+**This file is ~123 KB. Do not load it into an agent's context.**
+
+That warning is not incidental. §14.5 caps the always-loaded memory index at **24 KB** and acts at
+67% of it; §1 claim 1 is *"context bloat never errors"*. A 123 KB file loaded as standing
+instruction is **~5× the entire index budget** — which would make the specification of the
+anti-context-bloat system the single largest context consumer in the apparatus. Splitting it costs
+nothing and not splitting it refutes the document.
+
+| Part | What it is | Size | Load it? |
+|---|---|---|---|
+| **§17 + Appendix cheat sheet** | the operating rules an agent needs *while working* | ~2 KB | ✅ **this is the runtime slice** — put it in the agent's standing instructions |
+| **§§1–16** | port documentation: mechanism, thresholds, code, rationale, measured gaps | ~121 KB | ❌ reference. Read it once when building; consult it on demand |
+| **§15** | measured failures and what nothing watches | — | ❌ reference, but read it before trusting any number here |
+
+**How to use it:** extract §17 and the Appendix into a short standing-instruction file. Keep this
+document in the repo and open it when you are *building or changing* the apparatus — the same
+distinction the system draws everywhere else between what is loaded and what is retrieved.
+
+---
+
 ## 📌 Resumo (PT-BR)
 
 Este documento descreve, de ponta a ponta, um sistema de orquestração de agentes que resolve
@@ -2033,6 +2055,7 @@ a passing aside.
 | An `inline-ok:` reason that is stated but hollow | **nothing** — only a *missing* reason is flagged as `unstated` | the override count, which sees a reason and is satisfied | ❌ **uncovered** |
 | A hook crashes mid-check | watchdog `error` action | the tool call itself — it proceeds ungated (fail-open) | ⚠️ detected after the fact, never prevented |
 | Prompt injection via subagent-read content | **nothing** | everything — the text looks like a normal finding | ❌ **uncovered** (see below) |
+| **The operator's attention budget** | **nothing** | every instrument — each one reports its own health while the *sum* of them is the cost | ❌ **uncovered, and structurally so** (see below) |
 
 > **Read the two ❌ patterns.** First: *every* class where the only instrument is the orchestrator
 > judging itself is uncovered in the strict sense — self-certification caps at `provavel` (§9.2),
@@ -2047,6 +2070,33 @@ a passing aside.
 > trigger is unobservable — which makes it indistinguishable from a decision never to build. Where
 > you defer on a trigger, check that something is actually watching for it, or write down that
 > nothing is.
+
+#### The line with no telemetry: the operator's attention
+
+Count what this system asks of one person: **nine instruments**, **four files written by hand**
+(lessons, receipts, patch-notes, the vault), a per-dispatch verdict, and a weekly adjudication
+ritual. Hygiene has a score. Quality has five indicators. The guardrails have a watchdog. The
+treadmill has a ledger.
+
+**The operator's time is the only line in the budget with no instrument on it at all** — and it is
+the one input every other line silently draws from. Every check in this document costs attention to
+run and attention to read; nothing anywhere sums that cost, so it can only ever be discovered by
+burnout or abandonment, both of which look like "the system stopped being used" rather than "the
+system cost more than it returned".
+
+**Do not fix this by measuring it.** A tenth instrument that tracks the cost of nine instruments is
+the treadmill in its purest form, and §12.1's visibility cut rejects it: the failure is *self-evident
+in the work* — you notice the day it is too much. The correct responses are the cheap ones:
+
+- **Prefer deleting an instrument to adding one.** Every component here should be able to name what
+  it would take for it to be removed. Two already do: the claim manifest carried "if never read,
+  delete it — do not add fields", and was deleted on exactly that basis; the utilization view
+  carried "if its receipt comes back a miss, cut it, do not extend it".
+- **Bind checks to lifecycle events, never to discipline** (§13.5). A check you must remember costs
+  attention twice: once to run, once to remember.
+- **Freeze deliberately.** §12.5's "hardest anti-decision" is a budget rule for attention wearing
+  the clothes of a governance rule. The healthy end state is a ledger where every open row waits on
+  the world and none waits on your code.
 
 #### The untrusted-input boundary, stated because the document otherwise ignores it
 
