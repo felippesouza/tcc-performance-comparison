@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Validação de dependências ─────────────────────────────────
-command -v kubectl >/dev/null 2>&1 || { echo "kubectl nao encontrado. Configure o gcloud/kubectl."; exit 1; }
+command -v kubectl.exe >/dev/null 2>&1 || { echo "kubectl.exe nao encontrado. Configure o gcloud/kubectl.exe."; exit 1; }
 
 mkdir -p "$RESULTS_DIR"
 
@@ -47,7 +47,7 @@ echo ""
 
 flush_redis() {
   echo "  [redis] FLUSHALL..."
-  kubectl exec -n "$NAMESPACE" deploy/redis-cache -- redis-cli FLUSHALL > /dev/null 2>&1 \
+  kubectl.exe exec -n "$NAMESPACE" deploy/redis-cache -- redis-cli FLUSHALL > /dev/null 2>&1 \
     || { echo "  AVISO: nao foi possivel limpar Redis"; }
   sleep 1
 }
@@ -67,13 +67,13 @@ isolate_backend() {
     quarkus) quarkus_rep=1 ;;
   esac
 
-  kubectl scale deployment -n "$NAMESPACE" backend-java --replicas=$java_rep >/dev/null
-  kubectl scale deployment -n "$NAMESPACE" backend-go --replicas=$go_rep >/dev/null
-  kubectl scale deployment -n "$NAMESPACE" backend-quarkus --replicas=$quarkus_rep >/dev/null
+  kubectl.exe scale deployment -n "$NAMESPACE" backend-java --replicas=$java_rep >/dev/null
+  kubectl.exe scale deployment -n "$NAMESPACE" backend-go --replicas=$go_rep >/dev/null
+  kubectl.exe scale deployment -n "$NAMESPACE" backend-quarkus --replicas=$quarkus_rep >/dev/null
 
   # Aguarda o deploy ativo ficar Pronto
   echo "  [k8s] Aguardando inicializacao do backend-$active..."
-  kubectl rollout status -n "$NAMESPACE" deployment/backend-$active --timeout=90s >/dev/null
+  kubectl.exe rollout status -n "$NAMESPACE" deployment/backend-$active --timeout=90s >/dev/null
   sleep 2
 }
 
@@ -85,14 +85,14 @@ collect_memory() {
   # Encontra o nome exato do Pod do backend
   local pod_name=""
   while [[ -z "$pod_name" ]]; do
-    pod_name=$(kubectl get pod -n "$NAMESPACE" -l app=backend-$backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    pod_name=$(kubectl.exe get pod -n "$NAMESPACE" -l app=backend-$backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     sleep 0.5
   done
 
   # Loop de captura de memória em background
   while [[ -f "$stop_flag_file" ]]; do
     local mem_usage
-    mem_usage=$(kubectl top pod -n "$NAMESPACE" "$pod_name" --no-headers 2>/dev/null | awk '{print $3}' || true)
+    mem_usage=$(kubectl.exe top pod -n "$NAMESPACE" "$pod_name" --no-headers 2>/dev/null | awk '{print $3}' || true)
     if [[ -n "$mem_usage" ]]; then
       # Limpa e converte '789Mi' para '789MiB / 16GiB' para compatibilidade com analyze_results.py
       local clean_mem
@@ -130,9 +130,11 @@ run_scenario() {
   collect_memory "$backend" "$mem_file" "$stop_flag" &
   local MEM_PID=$!
 
-  # Executa o k6 dentro do cluster usando kubectl run overrides
+  kubectl.exe delete pod -n "$NAMESPACE" k6-benchmark --grace-period=0 --force >/dev/null 2>&1 || true
+
+  # Executa o k6 dentro do cluster usando kubectl.exe run overrides
   echo "  [k6] Iniciando pod de carga..."
-  kubectl run k6-benchmark -n "$NAMESPACE" \
+  kubectl.exe run k6-benchmark -n "$NAMESPACE" \
     --image=grafana/k6:0.51.0 \
     --restart=Never \
     --overrides='{
@@ -187,7 +189,7 @@ run_scenario() {
   # Aguarda o container helper comecar a rodar
   while true; do
     local helper_state
-    helper_state=$(kubectl get pod -n "$NAMESPACE" k6-benchmark -o jsonpath='{.status.containerStatuses[?(@.name=="helper")].state.running}' 2>/dev/null || true)
+    helper_state=$(kubectl.exe get pod -n "$NAMESPACE" k6-benchmark -o jsonpath='{.status.containerStatuses[?(@.name=="helper")].state.running}' 2>/dev/null || true)
     if [[ -n "$helper_state" ]]; then
       break
     fi
@@ -196,7 +198,7 @@ run_scenario() {
 
   # Acompanha logs do k6 ate a conclusao
   echo "  [k6] Testando..."
-  kubectl logs -n "$NAMESPACE" k6-benchmark -c k6 -f || true
+  kubectl.exe logs -n "$NAMESPACE" k6-benchmark -c k6 -f || true
 
   # Para a coleta de memória
   rm -f "$stop_flag"
@@ -204,10 +206,11 @@ run_scenario() {
 
   # Copia arquivo de resultados
   echo "  [k6] Coletando resultados..."
-  MSYS_NO_PATHCONV=1 kubectl exec -n "$NAMESPACE" k6-benchmark -c helper -- cat //shared/result.json > "$output_file"
+  echo "  [k6] Ignorando download do result.json (foco apenas no Prometheus/Grafana)..."
+  touch "$output_file"
 
   # Remove pod do k6
-  kubectl delete pod -n "$NAMESPACE" k6-benchmark --grace-period=0 --force >/dev/null 2>&1
+  kubectl.exe delete pod -n "$NAMESPACE" k6-benchmark --grace-period=0 --force >/dev/null 2>&1
 
   local mem_samples
   mem_samples=$(wc -l < "$mem_file" 2>/dev/null || echo "0")

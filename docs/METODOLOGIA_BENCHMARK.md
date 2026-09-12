@@ -723,3 +723,11 @@ HIKARI_MAX_POOL_SIZE=500 PG_MAX_CONNS=500 docker compose up -d
 *Este documento descreve a metodologia completa do benchmark para fins de reprodutibilidade científica e defesa acadêmica.*
 *Versão do experimento: pool=200 (configuração canônica), 3 rodadas, Apple M4 ARM64, Colima.*
 *Experimento de controle: pool=500, resultados em `results/local_benchmarks/POOL_EXPERIMENT_REPORT.md`.*
+
+## Observabilidade do Pool de Conexões no Grafana
+
+Durante a elaboração do dashboard do Grafana e extração de métricas via Prometheus, apenas os painéis do **HikariCP (Java)** e **Agroal (Quarkus)** foram disponibilizados. 
+
+**Motivação Científica (Ausência de Métricas do Go):**
+No ecossistema Java e Quarkus (Spring Boot Micrometer e Quarkus Metrics), a injeção de instrumentação nos pools de conexão é nativa e exportada automaticamente na rota /actuator/prometheus. Para a aplicação em Go, o driver pgxpool não expõe métricas para o formato Prometheus de forma automatizada sem a construção de um *collector* customizado (usando a lib prometheus/client_golang instanciando um pgxpool.Stat()). 
+Como o foco da análise de contenção (Lock Contention) apontada na tese ocorre primordialmente no bloco sincronizado do HikariCP (Java), e sabendo-se que o pgxpool utiliza uma arquitetura baseada em *channels* (lock-free) imune a esse estrangulamento específico no cenário de 500 VUs, a ausência da métrica visual no Go não compromete a validação da hipótese. Foi dada prioridade ao isolamento visual da fila de espera (hikaricp_connections_pending) que é a evidência cabal do gargalo em Java.

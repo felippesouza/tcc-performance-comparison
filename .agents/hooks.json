@@ -1,0 +1,15 @@
+{
+  "delegation-check": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command|view_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .agents/scripts/delegation-check.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}
